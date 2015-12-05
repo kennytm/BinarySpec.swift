@@ -90,6 +90,18 @@ public struct SliceQueue<T: Equatable>: Equatable {
 
         return nil
     }
+
+    /// Combines all elements in this queue into a single array slice.
+    public func asArraySlice() -> ArraySlice<T> {
+        switch slices.count {
+        case 0:
+            return ArraySlice()
+        case 1:
+            return slices[0]
+        default:
+            return slices.dropFirst().reduce(slices.first!, combine: +)
+        }
+    }
 }
 
 /// Extends an array slice to the end of the queue.
@@ -114,6 +126,7 @@ public func +=<T>(inout queue: SliceQueue<T>, other: SliceQueue<T>) {
 /// - Complexity:
 ///   O(N).
 public func ==<T>(left: SliceQueue<T>, right: SliceQueue<T>) -> Bool {
+    // TODO: Implementation is too complex.
     var leftIter = left.slices.generate()
     var rightIter = right.slices.generate()
     var leftSlice = leftIter.next()
@@ -165,3 +178,74 @@ public func ==<T>(left: SliceQueue<T>, right: SliceQueue<T>) -> Bool {
     }
 }
 
+// MARK: - IntSpec
+
+/** Specification for an integer type. This structure defines how an integer is encoded in binary. */
+public struct IntSpec {
+    /** Length of integer. Normally should be 1, 2, 4 or 8. */
+    public let length: Int
+
+    /** Endian of the integer when encoded. */
+    public let endian: CFByteOrder
+
+    /** Specification of a byte (8-bit unsigned integer). */
+    public static let Byte = IntSpec(length: 1, endian: NSHostByteOrder())
+    /** Specification of a big-endian 16-bit unsigned integer. */
+    public static let UInt16BE = IntSpec(length: 2, endian: NS_BigEndian)
+    /** Specification of a little-endian 16-bit unsigned integer. */
+    public static let UInt16LE = IntSpec(length: 2, endian: NS_LittleEndian)
+    /** Specification of a big-endian 32-bit unsigned integer. */
+    public static let UInt32BE = IntSpec(length: 4, endian: NS_BigEndian)
+    /** Specification of a little-endian 32-bit unsigned integer. */
+    public static let UInt32LE = IntSpec(length: 4, endian: NS_LittleEndian)
+    /** Specification of a big-endian 64-bit unsigned integer. */
+    public static let UInt64BE = IntSpec(length: 8, endian: NS_BigEndian)
+    /** Specification of a little-endian 64-bit unsigned integer. */
+    public static let UInt64LE = IntSpec(length: 8, endian: NS_LittleEndian)
+
+    /// Encodes an integer. The encode result will be supplied to the closure (the result will be
+    /// invalidated after the closure exits).
+    public func encode<R>(integer: UIntMax, closure: UnsafeBufferPointer<UInt8> throws -> R) rethrows -> R {
+        var prepared: UIntMax
+        switch endian {
+        case NS_BigEndian:
+            let bitShift = (sizeof(UIntMax) - length) * 8
+            prepared = (integer << UIntMax(bitShift)).bigEndian
+            break
+        default:
+            prepared = integer.littleEndian
+            break
+        }
+        return try withUnsafePointer(&prepared) { ptr in
+            let buffer = UnsafeBufferPointer<UInt8>(start: UnsafePointer(ptr), count: length)
+            return try closure(buffer)
+        }
+    }
+}
+
+extension ArraySlice {
+    /// Decodes the content of this queue as integer using the given specification.
+    ///
+    /// - Precondition:
+    ///   self.count * sizeof(Generator.Element) >= spec.length
+    public func toUIntMax(spec: IntSpec) -> UIntMax {
+        var result: UIntMax = 0
+        withUnsafeBufferPointer { buffer in
+            let byteLength = buffer.count * sizeof(Generator.Element.self)
+            assert(byteLength >= spec.length)
+
+            memcpy(&result, buffer.baseAddress, spec.length)
+
+            switch spec.endian {
+            case NS_BigEndian:
+                let bitShift = (sizeof(UIntMax) - spec.length) * 8
+                result = UIntMax(bigEndian: result) >> UIntMax(bitShift)
+                break
+            default:
+                result = UIntMax(littleEndian: result)
+                break
+            }
+        }
+        return result
+    }
+}

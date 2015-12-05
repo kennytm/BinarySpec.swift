@@ -75,3 +75,29 @@ class SliceQueueTest: XCTestCase {
         XCTAssertEqual(queue, SliceQueue([[5,6]]))
     }
 }
+
+class IntSpecTest: XCTestCase {
+    func testDecode() {
+        let data = ArraySlice<UInt8>([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x12, 0x34])
+
+        XCTAssertEqual(data.toUIntMax(.Byte), 0xaa)
+        XCTAssertEqual(data.toUIntMax(.UInt16LE), 0xbbaa)
+        XCTAssertEqual(data.toUIntMax(.UInt16BE), 0xaabb)
+        XCTAssertEqual(data.toUIntMax(.UInt32LE), 0xddccbbaa)
+        XCTAssertEqual(data.toUIntMax(.UInt32BE), 0xaabbccdd)
+        XCTAssertEqual(data.toUIntMax(.UInt64LE), 0x3412ffee_ddccbbaa)
+        XCTAssertEqual(data.toUIntMax(.UInt64BE), 0xaabbccdd_eeff1234)
+    }
+
+    func testEncode() {
+        var calledCount = 0
+        IntSpec.Byte.encode(0x95) { XCTAssertEqual(Array($0), [0x95]); calledCount += 1 }
+        IntSpec.UInt16LE.encode(0x2051) { XCTAssertEqual(Array($0), [0x51, 0x20]); calledCount += 1 }
+        IntSpec.UInt16BE.encode(0x2051) { XCTAssertEqual(Array($0), [0x20, 0x51]); calledCount += 1 }
+        IntSpec.UInt32LE.encode(0x33419c) { XCTAssertEqual(Array($0), [0x9c, 0x41, 0x33, 0x00]); calledCount += 1 }
+        IntSpec.UInt32BE.encode(0x33419c) { XCTAssertEqual(Array($0), [0x00, 0x33, 0x41, 0x9c]); calledCount += 1 }
+        IntSpec.UInt64LE.encode(0x532_94ccba00) { XCTAssertEqual(Array($0), [0x00, 0xba, 0xcc, 0x94, 0x32, 0x05, 0x00, 0x00]); calledCount += 1 }
+        IntSpec.UInt64BE.encode(0x532_94ccba00) { XCTAssertEqual(Array($0), [0x00, 0x00, 0x05, 0x32, 0x94, 0xcc, 0xba, 0x00]); calledCount += 1 }
+        XCTAssertEqual(calledCount, 7)
+    }
+}
