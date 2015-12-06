@@ -1,6 +1,30 @@
 
 import Foundation
 
+// MARK: - Partial
+
+/// Represents the result of reading from a partial data stream.
+public enum Partial<T: Equatable>: Equatable {
+    /// Reading is succesful. The associated member contains the reading result.
+    case Done(T)
+
+    /// Not enough data to read. The associated member provides at least how many more bytes are
+    /// needed to complete the read.
+    case Incomplete(requesting: Int)
+}
+
+public func ==<T>(left: Partial<T>, right: Partial<T>) -> Bool {
+    switch (left, right) {
+    case let (.Done(l), .Done(r)):
+        return l == r
+    case let (.Incomplete(l), .Incomplete(r)):
+        return l == r
+    default:
+        return false
+    }
+}
+
+
 // MARK: - SliceQueue
 
 // Note that ArraySlice's startIndex is usually not 0, unlike what the documentation said.
@@ -10,7 +34,13 @@ public struct SliceQueue<T: Equatable>: Equatable {
     private var slices: [ArraySlice<T>] = []
 
     /// Construct a new queue from an array of slices.
+    ///
+    /// - Precondition:
+    ///   All slices are not empty.
     public init(_ slices: [ArraySlice<T>]) {
+        for slice in slices {
+            assert(!slice.isEmpty)
+        }
         self.slices = slices
     }
 
@@ -20,6 +50,14 @@ public struct SliceQueue<T: Equatable>: Equatable {
     ///   O(N), where N is the number of slices.
     public var length: Int {
         return slices.reduce(0) { $0 + $1.count }
+    }
+
+    /// Whether the queue contains any data.
+    ///
+    /// - Complexity:
+    ///   O(1).
+    public var isEmpty: Bool {
+        return slices.isEmpty
     }
 
     /// Removes the first `count` elements from this queue.
@@ -36,8 +74,8 @@ public struct SliceQueue<T: Equatable>: Equatable {
     ///
     /// - Complexity:
     ///   O(N), where N is the number of slices.
-    public mutating func removeFirst(count: Int) -> SliceQueue? {
-        guard !slices.isEmpty else { return nil }
+    public mutating func removeFirst(count: Int) -> Partial<SliceQueue> {
+        guard !slices.isEmpty else { return .Incomplete(requesting: count) }
 
         assert(count > 0)
 
@@ -49,12 +87,12 @@ public struct SliceQueue<T: Equatable>: Equatable {
             let splitIndex = firstSlice.startIndex.advancedBy(count)
             let removedPart = SliceQueue([firstSlice.prefixUpTo(splitIndex)])
             slices[0] = firstSlice.suffixFrom(splitIndex)
-            return removedPart
+            return .Done(removedPart)
 
         case firstSlice.count:
             let removedPart = SliceQueue([firstSlice])
             slices.removeFirst()
-            return removedPart
+            return .Done(removedPart)
 
         default:
             break
@@ -76,19 +114,19 @@ public struct SliceQueue<T: Equatable>: Equatable {
                 removedSlices[removedSlices.endIndex.predecessor()] = firstPartialSlice
                 slices[0] = secondPartialSlice
 
-                return SliceQueue(removedSlices)
+                return .Done(SliceQueue(removedSlices))
 
             case currentLength:
                 let removedSlices = Array(slices.prefixThrough(i))
                 slices.removeFirst(i + 1)
-                return SliceQueue(removedSlices)
+                return .Done(SliceQueue(removedSlices))
 
             default:
                 continue
             }
         }
 
-        return nil
+        return .Incomplete(requesting: count - currentLength)
     }
 
     /// Combines all elements in this queue into a single array slice.
@@ -109,6 +147,7 @@ public struct SliceQueue<T: Equatable>: Equatable {
 /// - Complexity:
 ///   O(1).
 public func +=<T>(inout queue: SliceQueue<T>, slice: ArraySlice<T>) {
+    assert(!slice.isEmpty)
     queue.slices.append(slice)
 }
 

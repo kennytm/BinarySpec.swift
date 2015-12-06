@@ -9,6 +9,14 @@
 import XCTest
 @testable import BinarySpec
 
+func XCTAssertEqual<T: Equatable>(lhs: Partial<SliceQueue<T>>, _ rhs: ArraySlice<T>) {
+    XCTAssertEqual(lhs, Partial.Done(SliceQueue([rhs])))
+}
+
+func XCTAssertEqual<T: Equatable>(lhs: SliceQueue<T>, _ rhs: ArraySlice<T>) {
+    XCTAssertEqual(lhs, SliceQueue([rhs]))
+}
+
 class SliceQueueTest: XCTestCase {
     func testEqual() {
         let queue1 = SliceQueue<Int>([[1,2,3,4,5], [6,7], [8], [9,10], [11,12,13,14,15,16]])
@@ -40,39 +48,39 @@ class SliceQueueTest: XCTestCase {
         var queue = SliceQueue<Int>([[1,2,3,4,5], [6,7], [8], [9,10], [11,12,13,14,15,16]])
 
         let first = queue.removeFirst(4)
-        XCTAssertEqual(first, SliceQueue([[1,2,3,4]]))
-        XCTAssertEqual(queue, SliceQueue([[5,6,7,8,9,10,11,12,13,14,15,16]]))
+        XCTAssertEqual(first, [1,2,3,4])
+        XCTAssertEqual(queue, [5,6,7,8,9,10,11,12,13,14,15,16])
 
         let second = queue.removeFirst(1)
-        XCTAssertEqual(second, SliceQueue([[5]]))
-        XCTAssertEqual(queue, SliceQueue([[6,7,8,9,10,11,12,13,14,15,16]]))
+        XCTAssertEqual(second, [5])
+        XCTAssertEqual(queue, [6,7,8,9,10,11,12,13,14,15,16])
 
         let third = queue.removeFirst(4)
-        XCTAssertEqual(third, SliceQueue([[6,7,8,9]]))
-        XCTAssertEqual(queue, SliceQueue([[10,11,12,13,14,15,16]]))
+        XCTAssertEqual(third, [6,7,8,9])
+        XCTAssertEqual(queue, [10,11,12,13,14,15,16])
 
         let fourth = queue.removeFirst(7)
-        XCTAssertEqual(fourth, SliceQueue([[10,11,12,13,14,15,16]]))
-        XCTAssertEqual(queue, SliceQueue([]))
+        XCTAssertEqual(fourth, [10,11,12,13,14,15,16])
+        XCTAssertTrue(queue.isEmpty)
 
         let fifth = queue.removeFirst(4)
-        XCTAssertNil(fifth)
+        XCTAssertEqual(fifth, Partial.Incomplete(requesting: 4))
     }
 
     func testRemoveFirstWithNotEnoughData() {
         var queue = SliceQueue<Int>([[1,2,3], [4,5,6]])
 
         let first = queue.removeFirst(20)
-        XCTAssertNil(first)
-        XCTAssertEqual(queue, SliceQueue([[1,2,3,4,5,6]]))
+        XCTAssertEqual(first, Partial.Incomplete(requesting: 14))
+        XCTAssertEqual(queue, [1,2,3,4,5,6])
 
         let second = queue.removeFirst(4)
-        XCTAssertEqual(second, SliceQueue([[1,2,3,4]]))
-        XCTAssertEqual(queue, SliceQueue([[5,6]]))
+        XCTAssertEqual(second, [1,2,3,4])
+        XCTAssertEqual(queue, [5,6])
 
         let third = queue.removeFirst(4)
-        XCTAssertNil(third)
-        XCTAssertEqual(queue, SliceQueue([[5,6]]))
+        XCTAssertEqual(third, Partial.Incomplete(requesting: 2))
+        XCTAssertEqual(queue, [5,6])
     }
 }
 
