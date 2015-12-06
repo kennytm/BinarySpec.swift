@@ -743,3 +743,93 @@ public class BinaryParser {
         }
     }
 }
+
+// MARK: - BinaryEncoder
+
+public class BinaryEncoder {
+    private let spec: BinarySpec
+    private var variables: [VariableName: UIntMax] = [:]
+
+    public init(_ spec: BinarySpec) {
+        self.spec = spec
+    }
+
+    public func encode(data: BinaryData, encoder: UnsafeBufferPointer<UInt8> throws -> ()) rethrows {
+        variables = [:]
+        try encodeRecursively(spec, data, encoder)
+    }
+
+    private func encodeRecursively(spec: BinarySpec, _ data: BinaryData, _ encoder: UnsafeBufferPointer<UInt8> throws -> ()) rethrows {
+        switch (spec, data) {
+        case let (.Skip(n), .Empty):
+            let zeros = [UInt8](count: n, repeatedValue: 0)
+            try zeros.withUnsafeBufferPointer(encoder)
+            break
+
+        case let (.Skip(n), .Bytes(q)):
+            try q.encodeExactly(n, padding: 0, encoder: encoder)
+            break
+
+        case let (.Integer(spec), .Integer(val)):
+            try spec.encode(val, encoder: encoder)
+            break
+
+        case let (.Variable(spec, name), .Integer(val)):
+            variables[name] = val
+            try spec.encode(val, encoder: encoder)
+            break
+
+        case let (.Bytes(name), .Bytes(q)):
+            let encodedCount = try q.encode(encoder)
+            let expectedCount = Int(variables[name]!)
+            if expectedCount != encodedCount {
+                fatalError("Expecting to encode \(expectedCount) bytes, but the provided data is \(encodedCount) bytes long")
+            }
+            break
+
+        case let (.Seq(specs), .Seq(datas)) where specs.count == datas.count:
+            for (subspec, subdata) in zip(specs, datas) {
+                try encodeRecursively(subspec, subdata, encoder)
+            }
+            break
+
+        case let (.Until(name, subspec), .Seq(datas)):
+            let length = Int(variables[name]!)
+            var currentCount = 0
+            for subdata in datas {
+                try encodeRecursively(subspec, subdata) { subbuffer in
+                    currentCount += subbuffer.count
+                    if currentCount > length {
+                        fatalError("Data \(datas) overflows \(spec), expecting \(length) bytes only, got more than \(currentCount) bytes")
+                    }
+                    try encoder(subbuffer)
+                }
+            }
+            if currentCount < length {
+                let zeros = [UInt8](count: length - currentCount, repeatedValue: 0)
+                try zeros.withUnsafeBufferPointer(encoder)
+            }
+            break
+
+        case let (.Repeat(name, subspec), .Seq(datas)):
+            let count = Int(variables[name]!)
+            if count != datas.count {
+                fatalError("Expecting exactly \(count) items to encode \(spec), got \(datas.count) items in \(data) instead.")
+            }
+            for subdata in datas {
+                try encodeRecursively(subspec, subdata, encoder)
+            }
+            break
+
+        case let (.Switch(name, cases, def), _):
+            let selector = variables[name]!
+            let chosen = cases[selector] ?? def
+            try encodeRecursively(chosen, data, encoder)
+            break
+
+        default:
+            fatalError("Cannot use \(spec) to encode \(data)")
+        }
+    }
+}
+

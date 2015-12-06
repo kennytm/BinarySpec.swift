@@ -348,3 +348,54 @@ class BinaryParserTest: XCTestCase {
             ])))
     }
 }
+
+class BinaryEncoderTest: XCTestCase {
+    func testEncodeIntSeq() {
+        let data = BinaryData.Seq([
+            .Integer(0x0badf00d_deadba11),
+            .Integer(0x20121221),
+            .Integer(0x2468),
+            .Integer(0x13),
+            ])
+
+        let spec = BinarySpec.Seq([
+            .Integer(.UInt64BE),
+            .Integer(.UInt32LE),
+            .Integer(.UInt32BE),
+            .Integer(.UInt32LE),
+            ])
+
+        let encoder = BinaryEncoder(spec)
+
+        var result = [UInt8]()
+        encoder.encode(data) { result.appendContentsOf($0) }
+        XCTAssertEqual(result, [
+            0x0b, 0xad, 0xf0, 0x0d, 0xde, 0xad, 0xba, 0x11,
+            0x21, 0x12, 0x12, 0x20,
+            0, 0, 0x24, 0x68,
+            0x13, 0, 0, 0
+            ])
+    }
+
+    func testEncodeBytes() {
+        let bytes = ArraySlice("aaabbbcccdddeeefffggghhhiiijjjkkklllmmmnnnoooppp".utf8)
+
+        let data = BinaryData.Seq([
+            .Integer(UIntMax(bytes.count)),
+            .Bytes(SliceQueue([bytes]))
+            ])
+
+        let spec = BinarySpec.Seq([
+            .Variable(.UInt16BE, "length"),
+            .Bytes("length")
+            ])
+
+        let encoder = BinaryEncoder(spec)
+
+        var result = [UInt8]()
+        encoder.encode(data) { result.appendContentsOf($0) }
+
+        let expected = [UInt8]([0, 0x30] + bytes)
+        XCTAssertEqual(result, expected)
+    }
+}
