@@ -1,6 +1,3 @@
-
-import Foundation
-
 // MARK: - Partial
 
 public struct IncompleteError: ErrorType {
