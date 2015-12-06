@@ -3,19 +3,37 @@ import Foundation
 
 // MARK: - Partial
 
+public struct IncompleteError: ErrorType {
+    public let requestedCount: Int
+
+    public func asPartial<T>() -> Partial<T> {
+        return .Incomplete(requesting: requestedCount)
+    }
+}
+
 /// Represents the result of reading from a partial data stream.
 public enum Partial<T: Equatable>: Equatable {
     /// Reading is succesful. The associated member contains the reading result.
-    case Done(T)
+    case Ok(T)
 
     /// Not enough data to read. The associated member provides at least how many more bytes are
     /// needed to complete the read.
     case Incomplete(requesting: Int)
+
+    /// Returns the wrapped object if it is `.Done`. Throws `IncompleteError` if it is `.Incomplete`.
+    public func unwrap() throws -> T {
+        switch self {
+        case let .Ok(a):
+            return a
+        case let .Incomplete(n):
+            throw IncompleteError(requestedCount: n)
+        }
+    }
 }
 
 public func ==<T>(left: Partial<T>, right: Partial<T>) -> Bool {
     switch (left, right) {
-    case let (.Done(l), .Done(r)):
+    case let (.Ok(l), .Ok(r)):
         return l == r
     case let (.Incomplete(l), .Incomplete(r)):
         return l == r
@@ -37,7 +55,7 @@ public struct SliceQueue<T: Equatable>: Equatable {
     ///
     /// - Precondition:
     ///   All slices are not empty.
-    public init(_ slices: [ArraySlice<T>]) {
+    public init(_ slices: [ArraySlice<T>] = []) {
         for slice in slices {
             assert(!slice.isEmpty)
         }
@@ -66,15 +84,17 @@ public struct SliceQueue<T: Equatable>: Equatable {
     ///   The list of slices containing the removed elements. If the `count` is longer than the
     ///   `length` of this queue, the return value is `nil`, and this queue remains unmodified.
     ///
-    /// - Precondition:
-    ///   count > 0
-    ///
     /// - Postcondition:
     ///   (return.length == count || return == nil) && (return?.length + self.length == old.length)
     ///
     /// - Complexity:
     ///   O(N), where N is the number of slices.
+    @warn_unused_result
     public mutating func removeFirst(count: Int) -> Partial<SliceQueue> {
+        if count == 0 {
+            return .Ok(SliceQueue())
+        }
+
         guard !slices.isEmpty else { return .Incomplete(requesting: count) }
 
         assert(count > 0)
@@ -87,12 +107,12 @@ public struct SliceQueue<T: Equatable>: Equatable {
             let splitIndex = firstSlice.startIndex.advancedBy(count)
             let removedPart = SliceQueue([firstSlice.prefixUpTo(splitIndex)])
             slices[0] = firstSlice.suffixFrom(splitIndex)
-            return .Done(removedPart)
+            return .Ok(removedPart)
 
         case firstSlice.count:
             let removedPart = SliceQueue([firstSlice])
             slices.removeFirst()
-            return .Done(removedPart)
+            return .Ok(removedPart)
 
         default:
             break
@@ -114,12 +134,12 @@ public struct SliceQueue<T: Equatable>: Equatable {
                 removedSlices[removedSlices.endIndex.predecessor()] = firstPartialSlice
                 slices[0] = secondPartialSlice
 
-                return .Done(SliceQueue(removedSlices))
+                return .Ok(SliceQueue(removedSlices))
 
             case currentLength:
                 let removedSlices = Array(slices.prefixThrough(i))
                 slices.removeFirst(i + 1)
-                return .Done(SliceQueue(removedSlices))
+                return .Ok(SliceQueue(removedSlices))
 
             default:
                 continue
@@ -220,7 +240,7 @@ public func ==<T>(left: SliceQueue<T>, right: SliceQueue<T>) -> Bool {
 // MARK: - IntSpec
 
 /** Specification for an integer type. This structure defines how an integer is encoded in binary. */
-public struct IntSpec {
+public struct IntSpec: Equatable {
     /** Length of integer. Normally should be 1, 2, 4 or 8. */
     public let length: Int
 
@@ -262,6 +282,10 @@ public struct IntSpec {
     }
 }
 
+public func ==(left: IntSpec, right: IntSpec) -> Bool {
+    return left.length == right.length && left.endian == right.endian
+}
+
 extension ArraySlice {
     /// Decodes the content of this queue as integer using the given specification.
     ///
@@ -286,5 +310,403 @@ extension ArraySlice {
             }
         }
         return result
+    }
+}
+
+// MARK: - BinaryData
+
+/// The parsed binary data.
+public indirect enum BinaryData: Equatable {
+    /// No data.
+    case Empty
+
+    /// An error value that indicates parsing has been stopped at the outermost level. The whole
+    /// structure would become invalid since the future length information would be corrupted. The
+    /// `.Stop` data is silently hidden inside an `.Until` spec.
+    ///
+    /// - Parameters:
+    ///   - 0: The specification that caused the error.
+    ///   - 1: The value in the data stream, if any, which caused the specification to reject it.
+    case Stop(BinarySpec, UIntMax)
+
+    /// A parsed integer.
+    case Integer(UIntMax)
+
+    /// Raw bytes.
+    case Bytes(SliceQueue<UInt8>)
+
+    /// Sequence of more data.
+    case Seq([BinaryData])
+
+    /// Whether this is a "stop" data.
+    public var isStop: Bool {
+        if case .Stop = self {
+            return true
+        } else {
+            return false
+        }
+    }
+}
+
+public func ==(left: BinaryData, right: BinaryData) -> Bool {
+    switch (left, right) {
+    case (.Empty, .Empty):
+        return true
+    case let (.Integer(a), .Integer(b)):
+        return a == b
+    case let (.Bytes(a), .Bytes(b)):
+        return a == b
+    case let (.Seq(a), .Seq(b)):
+        return a == b
+    case let (.Stop(a, c), .Stop(b, d)):
+        return a == b && c == d
+    default:
+        return false
+    }
+}
+
+// MARK: - BinarySpec
+
+/// Type of a variable name.
+public typealias VariableName = StaticString
+
+extension VariableName: Hashable {
+    public var hashValue: Int {
+        return stringValue.hashValue
+    }
+}
+
+public func ==(left: VariableName, right: VariableName) -> Bool {
+    return left.withUTF8Buffer { a in
+        right.withUTF8Buffer { b in
+            return a.count == b.count && memcmp(a.baseAddress, b.baseAddress, a.count) == 0
+        }
+    }
+}
+
+/// An intermediate error thrown when a `.Stop` spec is encountered.
+private struct StopParsingError: ErrorType {
+    let spec: BinarySpec
+    let value: UIntMax
+
+    func toBinaryData() -> BinaryData {
+        return .Stop(spec, value)
+    }
+}
+
+/// A specification of how a raw binary data stream should be parsed.
+public indirect enum BinarySpec: Equatable {
+    /// Reads _n_ bytes and ignore the result. Decodes to `BinaryData.Empty`. When encoded, this
+    /// field will generate zeros.
+    case Skip(Int)
+
+    /// Immediately stop reading this data stream. This will propagate until an `.Until` 
+    /// specification.
+    case Stop
+
+    /// Integer. Decodes to `BinaryData.Integer`.
+    case Integer(IntSpec)
+
+    /// Integer variable. The variable name should be used to define the length of some dynamic
+    /// structures later. Decodes to `BinaryData.Integer`.
+    ///
+    /// - Warning: 
+    ///   Refering to a variable before it is defined will cause `fatalError`.
+    case Variable(IntSpec, VariableName)
+
+    /// Dynamic bytes. Uses the content of a variable as the length, then reads the corresponding
+    /// number of bytes. Decodes to `BinaryData.Bytes`.
+    case Bytes(VariableName)
+
+    /// Sequence of sub-specifications. Decodes to `BinaryData.Seq`.
+    case Seq([BinarySpec])
+
+    /// Repeated data with a given length. Uses the content of a variable as the length of data,
+    /// then repeats the sub-specification until the length runs out. Decodes to `BinaryData.Seq`.
+    case Until(VariableName, BinarySpec)
+
+    /// Repeated data with a given count. Then repeats the sub-specification exactly *n* times, 
+    /// where *n* is given by the variable. Decodes to `BinaryData.Seq`.
+    case Repeat(VariableName, BinarySpec)
+
+    /// Enumerated cases.
+    ///
+    /// - Parameters:
+    ///   - selector: 
+    ///     The variable that introduces the case to select.
+    ///   - cases:
+    ///     How to react according to different selectors. 
+    ///   - default:
+    ///     The default case when none of the cases match. Supply `.Stop` here if no default case
+    ///     is expected.
+    case Switch(selector: VariableName, cases: [UIntMax: BinarySpec], `default`: BinarySpec)
+}
+
+public func ==(left: BinarySpec, right: BinarySpec) -> Bool {
+    switch (left, right) {
+    case let (.Skip(a), .Skip(b)):
+        return a == b
+    case (.Stop, .Stop):
+        return true
+    case let (.Integer(a), .Integer(b)):
+        return a == b
+    case let (.Variable(a, c), .Variable(b, d)):
+        return a == b && c == d
+    case let (.Bytes(a), .Bytes(b)):
+        return a == b
+    case let (.Seq(a), .Seq(b)):
+        return a == b
+    case let (.Until(a, c), .Until(b, d)):
+        return a == b && c == d
+    case let (.Repeat(a, c), .Repeat(b, d)):
+        return a == b && c == d
+    case let (.Switch(a, c, e), .Switch(b, d, f)):
+        return a == b && c == d && e == f
+    default:
+        return false
+    }
+}
+
+// MARK: - IncompleteBinaryData
+
+/// An intermediate state when a BinarySpec is being parsed into BinaryData.
+private indirect enum IncompleteBinaryData {
+    /// Reading not started yet.
+    case Prepared(BinarySpec)
+
+    /// Everything has been read.
+    case Done(BinaryData)
+
+    /// Partial sequence.
+    case PartialSeq(done: [BinaryData], remaining: ArraySlice<BinarySpec>)
+
+    /// Partial specification repetition.
+    case PartialRepeat(done: [BinaryData], remaining: UIntMax, spec: BinarySpec)
+
+    /// Append a data to a partial sequence. Fails if this is not `.Partial*`.
+    func fillHole(data: BinaryData) -> IncompleteBinaryData {
+        switch self {
+        case let .PartialSeq(done, remaining):
+            var newDone = done
+            newDone.append(data)
+            return .PartialSeq(done: newDone, remaining: remaining)
+
+        case let .PartialRepeat(done, remaining, spec):
+            var newDone = done
+            newDone.append(data)
+            return .PartialRepeat(done: newDone, remaining: remaining, spec: spec)
+
+        default:
+            fatalError("Should not fill in \(data) into \(self)")
+        }
+    }
+
+    /// Obtains the data in stored in this structure, even if not all of them are complete.
+    var data: BinaryData {
+        switch self {
+        case .Prepared:
+            return .Empty
+        case let .Done(b):
+            return b
+        case let .PartialSeq(done, _):
+            return .Seq(done)
+        case let .PartialRepeat(done, _, _):
+            return .Seq(done)
+        }
+    }
+}
+
+// MARK: - BinaryParser
+
+private enum BinaryParserNextAction {
+    case Continue
+    case Done
+}
+
+/// A parser that reads a byte stream, and decodes into BinaryData, according to the rules in a 
+/// provided BinarySpec.
+public class BinaryParser {
+    private var incompleteDataStack: [IncompleteBinaryData]
+    private var variables: [VariableName: UIntMax] = [:]
+    private var queue = SliceQueue<UInt8>()
+
+    /// Initialize the parser using a specification.
+    public init(_ spec: BinarySpec) {
+        incompleteDataStack = [.Prepared(spec)]
+    }
+
+    /// Provide more data to the parser.
+    public func supply(data: SliceQueue<UInt8>) {
+        queue += data
+    }
+
+    /// Provide more data to the parser.
+    public func supply(data: ArraySlice<UInt8>) {
+        queue += data
+    }
+
+    /// Provide more data to the parser.
+    public func supply(data: [UInt8]) {
+        queue += ArraySlice(data)
+    }
+
+    /// Obtains the remaining bytes not yet parsed.
+    public var remaining: SliceQueue<UInt8> {
+        return queue
+    }
+
+    /// Performs a parsing step using as many bytes available as possible.
+    ///
+    /// - Returns:
+    ///   On succeed, returns `.Ok` containing the parsed data. If there is not enough bytes
+    ///   available, returns `.Incomplete` indicating at least how much bytes are needed to proceed
+    ///   to the next step.
+    @warn_unused_result
+    public func next() -> Partial<BinaryData> {
+        while true {
+            do {
+                switch try step() {
+                case .Ok(.Done):
+                    assert(incompleteDataStack.count == 1)
+                    return .Ok(incompleteDataStack.last!.data)
+                case .Ok(.Continue):
+                    continue
+                case let .Incomplete(count):
+                    return .Incomplete(requesting: count)
+                }
+            } catch let e as StopParsingError {
+                let errorData = e.toBinaryData()
+                incompleteDataStack = [.Done(errorData)]
+                return .Ok(errorData)
+            } catch {
+                fatalError("Unexepected error being thrown")
+            }
+        }
+    }
+
+    /// Parses all the bytes available. If the bytes are long enough to provide multiple BinaryData,
+    /// all of them will be returned from this method.
+    public func parseAll() -> [BinaryData] {
+        let initialStack = incompleteDataStack
+
+        assert(initialStack.count == 1)
+
+        var result: [BinaryData] = []
+        while case let .Ok(data) = next() where !data.isStop {
+            result.append(data)
+            incompleteDataStack = initialStack
+            variables = [:]
+        }
+        return result
+    }
+
+    /// Performs an atomic parsing step.
+    @warn_unused_result
+    private func step() throws -> Partial<BinaryParserNextAction> {
+        let lastState = incompleteDataStack.removeLast()
+
+        do {
+            switch lastState {
+            case .Done:
+                assert(incompleteDataStack.isEmpty)
+                incompleteDataStack.append(lastState)
+                return .Ok(.Done)
+
+            case let .Prepared(.Skip(n)):
+                try queue.removeFirst(n).unwrap()
+                return .Ok(pushState(.Empty))
+
+            case let .Prepared(.Integer(spec)):
+                let data = try queue.removeFirst(spec.length).unwrap()
+                let integer = data.asArraySlice().toUIntMax(spec)
+                return .Ok(pushState(.Integer(integer)))
+
+            case let .Prepared(.Variable(spec, name)):
+                let data = try queue.removeFirst(spec.length).unwrap()
+                let integer = data.asArraySlice().toUIntMax(spec)
+                variables[name] = integer
+                return .Ok(pushState(.Integer(integer)))
+
+            case let .Prepared(.Bytes(name)):
+                let length = Int(variables[name]!)
+                let data = try queue.removeFirst(length).unwrap()
+                return .Ok(pushState(.Bytes(data)))
+
+            case let .Prepared(.Seq(specs)):
+                if let firstSpec = specs.first {
+                    let remainingSpecs = specs.suffixFrom(specs.startIndex.successor())
+                    incompleteDataStack.append(.PartialSeq(done: [], remaining: remainingSpecs))
+                    incompleteDataStack.append(.Prepared(firstSpec))
+                    return .Ok(.Continue)
+                } else {
+                    return .Ok(pushState(.Seq([])))
+                }
+
+            case let .PartialSeq(done, remaining):
+                if let firstSpec = remaining.first {
+                    let remainingSpecs = remaining.suffixFrom(remaining.startIndex.successor())
+                    incompleteDataStack.append(.PartialSeq(done: done, remaining: remainingSpecs))
+                    incompleteDataStack.append(.Prepared(firstSpec))
+                    return .Ok(.Continue)
+                } else {
+                    return .Ok(pushState(.Seq(done)))
+                }
+
+            case let .Prepared(.Repeat(name, spec)):
+                let count = variables[name]!
+                incompleteDataStack.append(.PartialRepeat(done: [], remaining: count, spec: spec))
+                incompleteDataStack.append(.Prepared(spec))
+                return .Ok(.Continue)
+
+            case let .PartialRepeat(done, remaining, spec):
+                if remaining > 0 {
+                    incompleteDataStack.append(.PartialRepeat(done: done, remaining: remaining - 1, spec: spec))
+                    incompleteDataStack.append(.Prepared(spec))
+                    return .Ok(.Continue)
+                } else {
+                    return .Ok(pushState(.Seq(done)))
+                }
+
+            case let .Prepared(.Switch(name, cases, def)):
+                let selector = variables[name]!
+                let chosen = cases[selector] ?? def
+                if case .Stop = chosen {
+                    let spec = BinarySpec.Switch(selector: name, cases: cases, `default`: def)
+                    throw StopParsingError(spec: spec, value: selector)
+                } else {
+                    incompleteDataStack.append(.Prepared(chosen))
+                    return .Ok(.Continue)
+                }
+
+            case let .Prepared(.Until(name, spec)):
+                let length = Int(variables[name]!)
+                let data = try queue.removeFirst(length).unwrap()
+                let subparser = BinaryParser(spec)
+                subparser.supply(data)
+                let result = subparser.parseAll()
+                return .Ok(pushState(.Seq(result)))
+
+            case .Prepared(.Stop):
+                // No need to restore the stack, we will abandon everything anyway.
+                throw StopParsingError(spec: .Stop, value: 0)
+            }
+        } catch let e as IncompleteError {
+            incompleteDataStack.append(lastState)
+            return e.asPartial()
+        }
+    }
+
+    /// Fill in any completed "BinaryData" hole in the partial state.
+    private func pushState(data: BinaryData) -> BinaryParserNextAction {
+        if incompleteDataStack.isEmpty {
+            incompleteDataStack.append(.Done(data))
+            return .Done
+        } else {
+            let lastIndex = incompleteDataStack.endIndex.predecessor()
+            let lastItem = incompleteDataStack[lastIndex]
+            let filledItem = lastItem.fillHole(data)
+            incompleteDataStack[lastIndex] = filledItem
+            return .Continue
+        }
     }
 }
