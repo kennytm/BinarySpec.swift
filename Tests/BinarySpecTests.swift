@@ -82,6 +82,26 @@ class SliceQueueTest: XCTestCase {
         XCTAssertEqual(third, Partial.Incomplete(requesting: 2))
         XCTAssertEqual(queue, [5,6])
     }
+
+    func testEncodeExactly() {
+        let queue = SliceQueue<Int>([[1, 2], [3, 4, 5, 6]])
+
+        var res1 = [Int]()
+        queue.encodeExactly(5, padding: 0) { res1.appendContentsOf($0) }
+        XCTAssertEqual(res1, [1, 2, 3, 4, 5])
+
+        var res2 = [Int]()
+        queue.encodeExactly(6, padding: 0) { res2.appendContentsOf($0) }
+        XCTAssertEqual(res2, [1, 2, 3, 4, 5, 6])
+
+        var res3 = [Int]()
+        queue.encodeExactly(9, padding: 0) { res3.appendContentsOf($0) }
+        XCTAssertEqual(res3, [1, 2, 3, 4, 5, 6, 0, 0, 0])
+
+        var res4 = [Int]()
+        queue.encode { res4.appendContentsOf($0) }
+        XCTAssertEqual(res4, [1, 2, 3, 4, 5, 6])
+    }
 }
 
 class IntSpecTest: XCTestCase {

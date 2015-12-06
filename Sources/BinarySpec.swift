@@ -160,6 +160,39 @@ public struct SliceQueue<T: Equatable>: Equatable {
             return slices.dropFirst().reduce(slices.first!, combine: +)
         }
     }
+
+    /// Writes the content of this queue into the encoder. The encoder may be called multiple times.
+    public func encode(encoder: UnsafeBufferPointer<T> throws -> ()) rethrows -> Int {
+        var encodedCount = 0
+        for slice in slices {
+            try slice.withUnsafeBufferPointer(encoder)
+            encodedCount += slice.count
+        }
+        return encodedCount
+    }
+
+    /// Encodes exactly *n* bytes. If the queue is shorter, pad the end with the supplied element. 
+    /// If the queue is longer, the result will be truncated.
+    ///
+    /// The encoder may be called multiple times.
+    public func encodeExactly(count: Int, padding: T, encoder: UnsafeBufferPointer<T> throws -> ()) rethrows {
+        var encodedCount = 0
+        for slice in slices {
+            encodedCount += slice.count
+            if encodedCount > count {
+                let subsliceIndex = slice.endIndex.advancedBy(count - encodedCount)
+                let subslice = slice.prefixUpTo(subsliceIndex)
+                try subslice.withUnsafeBufferPointer(encoder)
+                return
+            } else {
+                try slice.withUnsafeBufferPointer(encoder)
+            }
+        }
+        if encodedCount < count {
+            let paddingArray = [T](count: count - encodedCount, repeatedValue: padding)
+            try paddingArray.withUnsafeBufferPointer(encoder)
+        }
+    }
 }
 
 /// Extends an array slice to the end of the queue.
@@ -262,9 +295,9 @@ public struct IntSpec: Equatable {
     /** Specification of a little-endian 64-bit unsigned integer. */
     public static let UInt64LE = IntSpec(length: 8, endian: NS_LittleEndian)
 
-    /// Encodes an integer. The encode result will be supplied to the closure (the result will be
+    /// Encodes an integer. The encode result will be supplied to the `encoder` (the result will be
     /// invalidated after the closure exits).
-    public func encode<R>(integer: UIntMax, closure: UnsafeBufferPointer<UInt8> throws -> R) rethrows -> R {
+    public func encode<R>(integer: UIntMax, encoder: UnsafeBufferPointer<UInt8> throws -> R) rethrows -> R {
         var prepared: UIntMax
         switch endian {
         case NS_BigEndian:
@@ -277,7 +310,7 @@ public struct IntSpec: Equatable {
         }
         return try withUnsafePointer(&prepared) { ptr in
             let buffer = UnsafeBufferPointer<UInt8>(start: UnsafePointer(ptr), count: length)
-            return try closure(buffer)
+            return try encoder(buffer)
         }
     }
 }
