@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		9C7467821C15E86600AF2C8E /* README.md in Sources */ = {isa = PBXBuildFile; fileRef = 9C7467811C15E86600AF2C8E /* README.md */; };
 		9CD20AE21C123137007899F2 /* BinarySpec.h in Headers */ = {isa = PBXBuildFile; fileRef = 9CD20AE11C123137007899F2 /* BinarySpec.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		9CD20AE91C123137007899F2 /* BinarySpec.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9CD20ADF1C123137007899F2 /* BinarySpec.framework */; };
 		9CD20AEE1C123137007899F2 /* BinarySpecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CD20AED1C123137007899F2 /* BinarySpecTests.swift */; };
@@ -24,6 +25,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		9C7467811C15E86600AF2C8E /* README.md */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		9CD20ADF1C123137007899F2 /* BinarySpec.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = BinarySpec.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		9CD20AE11C123137007899F2 /* BinarySpec.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BinarySpec.h; sourceTree = "<group>"; };
 		9CD20AE31C123137007899F2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -55,6 +57,7 @@
 		9CD20A9A1C12293C007899F2 = {
 			isa = PBXGroup;
 			children = (
+				9C7467811C15E86600AF2C8E /* README.md */,
 				9CD20AE01C123137007899F2 /* Sources */,
 				9CD20AEC1C123137007899F2 /* Tests */,
 				9CD20AA41C12293C007899F2 /* Products */,
@@ -161,6 +164,9 @@
 			compatibilityVersion = "Xcode 3.2";
 			developmentRegion = English;
 			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+			);
 			mainGroup = 9CD20A9A1C12293C007899F2;
 			productRefGroup = 9CD20AA41C12293C007899F2 /* Products */;
 			projectDirPath = "";
@@ -194,6 +200,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9C7467821C15E86600AF2C8E /* README.md in Sources */,
 				9CD20AF71C12326D007899F2 /* BinarySpec.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -221,6 +228,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				DEFINES_MODULE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 7.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks @loader_path/../Frameworks";
 			};
 			name = Debug;
@@ -229,6 +237,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				DEFINES_MODULE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 7.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks @loader_path/../Frameworks";
 			};
 			name = Release;
@@ -276,7 +285,6 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				INFOPLIST_FILE = Sources/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
-				IPHONEOS_DEPLOYMENT_TARGET = 9.1;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -328,7 +336,6 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				INFOPLIST_FILE = Sources/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
-				IPHONEOS_DEPLOYMENT_TARGET = 9.1;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
 				MTL_ENABLE_DEBUG_INFO = NO;
 				PRODUCT_BUNDLE_IDENTIFIER = kennytm.BinarySpec;

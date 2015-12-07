@@ -8,9 +8,11 @@ BinarySpec is an incremental, zero-copying parser for binary protocols
 Installing
 ----------
 
+### CocoaSeeds
+
 BinarySpec currently only supports [CocoaSeeds](https://github.com/devxoul/CocoaSeeds).
 
-    github 'kennytm/BinarySpec.swift', '0.1.0', :files=>'Sources/*.swift'
+    github 'kennytm/BinarySpec.swift', '0.2.0', :files=>'Sources/*.{h,swift}'
 
 License
 -------
