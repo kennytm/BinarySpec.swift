@@ -220,6 +220,7 @@
 		9CD20AAA1C12293C007899F2 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				DEFINES_MODULE = YES;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks @loader_path/../Frameworks";
 			};
 			name = Debug;
@@ -227,6 +228,7 @@
 		9CD20AAB1C12293C007899F2 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				DEFINES_MODULE = YES;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks @loader_path/../Frameworks";
 			};
 			name = Release;
