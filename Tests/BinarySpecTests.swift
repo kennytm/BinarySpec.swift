@@ -17,104 +17,85 @@ License.
 import XCTest
 @testable import BinarySpec
 
-func XCTAssertEqual<T: Equatable>(lhs: Partial<SliceQueue<T>>, _ rhs: ArraySlice<T>) {
-    XCTAssertEqual(lhs, Partial.Ok(SliceQueue([rhs])))
+func XCTAssertEqual(left: dispatch_data_t, _ right: [UInt8], line: UInt = __LINE__) {
+    var left = left
+    let leftBuffer = linearize(&left)
+    right.withUnsafeBufferPointer { rightBuffer in
+        XCTAssertEqual(leftBuffer.count, rightBuffer.count, line: line)
+        XCTAssertEqual(memcmp(leftBuffer.baseAddress, rightBuffer.baseAddress, leftBuffer.count), 0, line: line)
+    }
 }
 
-func XCTAssertEqual<T: Equatable>(lhs: SliceQueue<T>, _ rhs: ArraySlice<T>) {
-    XCTAssertEqual(lhs, SliceQueue([rhs]))
-}
+class DispatchDataTest: XCTestCase {
+    func testLinearize() {
+        var dd = dispatch_data_empty
+        dd += [1,2,3,4,5]
+        dd += [6,7]
+        dd += [8]
+        dd += [9,10]
+        dd += [11,12,13,14,15,16]
 
-class SliceQueueTest: XCTestCase {
-    func testEqual() {
-        let queue1 = SliceQueue<Int>([[1,2,3,4,5], [6,7], [8], [9,10], [11,12,13,14,15,16]])
-        let queue2 = SliceQueue<Int>([[1,2,3,4], [5,6,7], [8,9,10,11,12,13,14,15,16]])
-        let queue3 = SliceQueue<Int>([[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17]])
-        let queue4 = SliceQueue<Int>([[1],[2],[3],[4,5,6,7,8,9,-1,-2]])
-
-        XCTAssertEqual(queue1, queue2)
-        XCTAssertEqual(queue2, queue1)
-
-        XCTAssertEqual(queue1, queue1)
-        XCTAssertEqual(queue2, queue2)
-        XCTAssertEqual(queue3, queue3)
-        XCTAssertEqual(queue4, queue4)
-
-        XCTAssertNotEqual(queue1, queue3)
-        XCTAssertNotEqual(queue1, queue4)
-        XCTAssertNotEqual(queue2, queue3)
-        XCTAssertNotEqual(queue2, queue4)
-        XCTAssertNotEqual(queue3, queue1)
-        XCTAssertNotEqual(queue3, queue2)
-        XCTAssertNotEqual(queue3, queue4)
-        XCTAssertNotEqual(queue4, queue1)
-        XCTAssertNotEqual(queue4, queue2)
-        XCTAssertNotEqual(queue4, queue3)
+        let buffer = linearize(&dd)
+        XCTAssertEqual(Array(buffer), [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16])
     }
 
-    func testRemoveFirst() {
-        var queue = SliceQueue<Int>([[1,2,3,4,5], [6,7], [8], [9,10], [11,12,13,14,15,16]])
+    func testSplitAt() {
+        var queue = dispatch_data_empty
+        var prefix: dispatch_data_t
+        queue += [1,2,3,4,5]
+        queue += [6,7]
+        queue += [8]
+        queue += [9,10]
+        queue += [11,12,13,14,15,16]
 
-        let first = queue.removeFirst(4)
-        XCTAssertEqual(first, [1,2,3,4])
+        (prefix, queue) = try! queue.splitAt(4)
+        XCTAssertEqual(prefix, [1,2,3,4])
         XCTAssertEqual(queue, [5,6,7,8,9,10,11,12,13,14,15,16])
 
-        let second = queue.removeFirst(1)
-        XCTAssertEqual(second, [5])
+        (prefix, queue) = try! queue.splitAt(1)
+        XCTAssertEqual(prefix, [5])
         XCTAssertEqual(queue, [6,7,8,9,10,11,12,13,14,15,16])
 
-        let third = queue.removeFirst(4)
-        XCTAssertEqual(third, [6,7,8,9])
+        (prefix, queue) = try! queue.splitAt(4)
+        XCTAssertEqual(prefix, [6,7,8,9])
         XCTAssertEqual(queue, [10,11,12,13,14,15,16])
 
-        let fourth = queue.removeFirst(7)
-        XCTAssertEqual(fourth, [10,11,12,13,14,15,16])
+        (prefix, queue) = try! queue.splitAt(7)
+        XCTAssertEqual(prefix, [10,11,12,13,14,15,16])
         XCTAssertTrue(queue.isEmpty)
 
-        let fifth = queue.removeFirst(4)
-        XCTAssertEqual(fifth, Partial.Incomplete(requesting: 4))
+        do {
+            try queue.splitAt(4)
+            XCTFail()
+        } catch let e as IncompleteError {
+            XCTAssertEqual(e.requestedCount, 4)
+        } catch {
+            XCTFail()
+        }
     }
 
-    func testRemoveFirstWithNotEnoughData() {
-        var queue = SliceQueue<Int>([[1,2,3], [4,5,6]])
+    func testResized() {
+        var queue = dispatch_data_empty
+        queue += [1, 2]
+        queue += [3, 4, 5, 6]
 
-        let first = queue.removeFirst(20)
-        XCTAssertEqual(first, Partial.Incomplete(requesting: 14))
-        XCTAssertEqual(queue, [1,2,3,4,5,6])
-
-        let second = queue.removeFirst(4)
-        XCTAssertEqual(second, [1,2,3,4])
-        XCTAssertEqual(queue, [5,6])
-
-        let third = queue.removeFirst(4)
-        XCTAssertEqual(third, Partial.Incomplete(requesting: 2))
-        XCTAssertEqual(queue, [5,6])
-    }
-
-    func testEncodeExactly() {
-        let queue = SliceQueue<Int>([[1, 2], [3, 4, 5, 6]])
-
-        var res1 = [Int]()
-        queue.encodeExactly(5, padding: 0) { res1.appendContentsOf($0) }
+        let res1 = queue.resized(5)
         XCTAssertEqual(res1, [1, 2, 3, 4, 5])
 
-        var res2 = [Int]()
-        queue.encodeExactly(6, padding: 0) { res2.appendContentsOf($0) }
+        let res2 = queue.resized(6)
         XCTAssertEqual(res2, [1, 2, 3, 4, 5, 6])
 
-        var res3 = [Int]()
-        queue.encodeExactly(9, padding: 0) { res3.appendContentsOf($0) }
+        let res3 = queue.resized(9)
         XCTAssertEqual(res3, [1, 2, 3, 4, 5, 6, 0, 0, 0])
 
-        var res4 = [Int]()
-        queue.encode { res4.appendContentsOf($0) }
-        XCTAssertEqual(res4, [1, 2, 3, 4, 5, 6])
+        XCTAssertEqual(queue, [1, 2, 3, 4, 5, 6])
     }
 }
 
 class IntSpecTest: XCTestCase {
     func testDecode() {
-        let data = ArraySlice<UInt8>([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x12, 0x34])
+        var data = dispatch_data_empty
+        data += [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x12, 0x34]
 
         XCTAssertEqual(data.toUIntMax(.Byte), 0xaa)
         XCTAssertEqual(data.toUIntMax(.UInt16LE), 0xbbaa)
@@ -126,15 +107,13 @@ class IntSpecTest: XCTestCase {
     }
 
     func testEncode() {
-        var calledCount = 0
-        IntSpec.Byte.encode(0x95) { XCTAssertEqual(Array($0), [0x95]); calledCount += 1 }
-        IntSpec.UInt16LE.encode(0x2051) { XCTAssertEqual(Array($0), [0x51, 0x20]); calledCount += 1 }
-        IntSpec.UInt16BE.encode(0x2051) { XCTAssertEqual(Array($0), [0x20, 0x51]); calledCount += 1 }
-        IntSpec.UInt32LE.encode(0x33419c) { XCTAssertEqual(Array($0), [0x9c, 0x41, 0x33, 0x00]); calledCount += 1 }
-        IntSpec.UInt32BE.encode(0x33419c) { XCTAssertEqual(Array($0), [0x00, 0x33, 0x41, 0x9c]); calledCount += 1 }
-        IntSpec.UInt64LE.encode(0x532_94ccba00) { XCTAssertEqual(Array($0), [0x00, 0xba, 0xcc, 0x94, 0x32, 0x05, 0x00, 0x00]); calledCount += 1 }
-        IntSpec.UInt64BE.encode(0x532_94ccba00) { XCTAssertEqual(Array($0), [0x00, 0x00, 0x05, 0x32, 0x94, 0xcc, 0xba, 0x00]); calledCount += 1 }
-        XCTAssertEqual(calledCount, 7)
+        XCTAssertEqual(IntSpec.Byte.encode(0x95), [0x95])
+        XCTAssertEqual(IntSpec.UInt16LE.encode(0x2051), [0x51, 0x20])
+        XCTAssertEqual(IntSpec.UInt16BE.encode(0x2051), [0x20, 0x51])
+        XCTAssertEqual(IntSpec.UInt32LE.encode(0x33419c), [0x9c, 0x41, 0x33, 0x00])
+        XCTAssertEqual(IntSpec.UInt32BE.encode(0x33419c), [0x00, 0x33, 0x41, 0x9c])
+        XCTAssertEqual(IntSpec.UInt64LE.encode(0x532_94ccba00), [0x00, 0xba, 0xcc, 0x94, 0x32, 0x05, 0x00, 0x00])
+        XCTAssertEqual(IntSpec.UInt64BE.encode(0x532_94ccba00), [0x00, 0x00, 0x05, 0x32, 0x94, 0xcc, 0xba, 0x00])        
     }
 }
 
@@ -203,7 +182,7 @@ class BinaryParserTest: XCTestCase {
         let result2 = parser.next()
         let expected = BinaryData.Seq([
             .Integer(0x10),
-            .Bytes(SliceQueue([[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16]])),
+            .Bytes(createData([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16])),
             ])
         XCTAssertEqual(result2, Partial.Ok(expected))
         XCTAssertEqual(parser.remaining, [17,18,19,20,21,22,23,24])
@@ -229,9 +208,9 @@ class BinaryParserTest: XCTestCase {
         let result3 = parser.next()
         XCTAssertEqual(result3, Partial.Ok(.Seq([
             .Integer(5),
-            .Bytes(SliceQueue([[1, 2, 3, 4, 5]])),
+            .Bytes(createData([1, 2, 3, 4, 5])),
             .Integer(0),
-            .Bytes(SliceQueue([]))
+            .Bytes(dispatch_data_empty)
             ])))
     }
 
@@ -375,8 +354,7 @@ class BinaryEncoderTest: XCTestCase {
 
         let encoder = BinaryEncoder(spec)
 
-        var result = [UInt8]()
-        encoder.encode(data) { result.appendContentsOf($0) }
+        let result = encoder.encode(data)
         XCTAssertEqual(result, [
             0x0b, 0xad, 0xf0, 0x0d, 0xde, 0xad, 0xba, 0x11,
             0x21, 0x12, 0x12, 0x20,
@@ -386,11 +364,11 @@ class BinaryEncoderTest: XCTestCase {
     }
 
     func testEncodeBytes() {
-        let bytes = ArraySlice("aaabbbcccdddeeefffggghhhiiijjjkkklllmmmnnnoooppp".utf8)
+        let bytes = Array("aaabbbcccdddeeefffggghhhiiijjjkkklllmmmnnnoooppp".utf8)
 
         let data = BinaryData.Seq([
             .Integer(UIntMax(bytes.count)),
-            .Bytes(SliceQueue([bytes]))
+            .Bytes(createData(bytes))
             ])
 
         let spec = BinarySpec.Seq([
@@ -400,8 +378,7 @@ class BinaryEncoderTest: XCTestCase {
 
         let encoder = BinaryEncoder(spec)
 
-        var result = [UInt8]()
-        encoder.encode(data) { result.appendContentsOf($0) }
+        let result = encoder.encode(data)
 
         let expected = [UInt8]([0, 0x30] + bytes)
         XCTAssertEqual(result, expected)

@@ -14,6 +14,8 @@ License.
 
 */
 
+import Dispatch
+
 // MARK: - Partial
 
 public struct IncompleteError: ErrorType {
@@ -55,235 +57,113 @@ public func ==<T>(left: Partial<T>, right: Partial<T>) -> Bool {
     }
 }
 
+// MARK: - dispatch_data_t
 
-// MARK: - SliceQueue
+/// Creates a "destructor" that retains the object in the function. This allows the raw pointers 
+/// supplied by the object be valid before the destructor is called.
+private func retaining<T>(obj: T?) -> dispatch_block_t {
+    var retained = obj
+    return { _ in
+        _ = retained // silence the warning
+        retained = nil
+    }
+}
 
-// Note that ArraySlice's startIndex is usually not 0, unlike what the documentation said.
+/// Extends an array slice to the end of the dispatch data.
+public func +=(inout data: dispatch_data_t, slice: ArraySlice<UInt8>) {
+    let newData = slice.withUnsafeBufferPointer { buffer in
+        dispatch_data_create(buffer.baseAddress, buffer.count, dispatch_get_main_queue(), retaining(slice))
+    }
+    data = dispatch_data_create_concat(data, newData)
+}
 
-/// Stores a queue of `ArraySlice`s.
-public struct SliceQueue<T: Equatable>: Equatable {
-    private var slices: [ArraySlice<T>] = []
+/// Extends another dispatch data to the end of this data. Equivalent to calling
+/// `dispatch_data_create_concat`.
+public func +=(inout data: dispatch_data_t, other: dispatch_data_t) {
+    data = dispatch_data_create_concat(data, other)
+}
 
-    /// Construct a new queue from an array of slices.
-    ///
-    /// - Precondition:
-    ///   All slices are not empty.
-    public init(_ slices: [ArraySlice<T>] = []) {
-        for slice in slices {
-            assert(!slice.isEmpty)
-        }
-        self.slices = slices
+extension dispatch_data_t {
+    /// Gets the byte length of this data.
+    public var count: Int {
+        return dispatch_data_get_size(self)
     }
 
-    /// The total number of elements contained by this queue.
-    ///
-    /// - Complexity:
-    ///   O(N), where N is the number of slices.
-    public var length: Int {
-        return slices.reduce(0) { $0 + $1.count }
-    }
-
-    /// Whether the queue contains any data.
-    ///
-    /// - Complexity:
-    ///   O(1).
     public var isEmpty: Bool {
-        return slices.isEmpty
+        return dispatch_data_get_size(self) == 0
     }
 
-    /// Removes the first `count` elements from this queue.
+    /// Splits the data into two parts. The first data has exactly *n* bytes.
     ///
-    /// - Returns:
-    ///   The list of slices containing the removed elements. If the `count` is longer than the
-    ///   `length` of this queue, the return value is `nil`, and this queue remains unmodified.
-    ///
-    /// - Postcondition:
-    ///   (return.length == count || return == nil) && (return?.length + self.length == old.length)
-    ///
-    /// - Complexity:
-    ///   O(N), where N is the number of slices.
-    @warn_unused_result
-    public mutating func removeFirst(count: Int) -> Partial<SliceQueue> {
-        if count == 0 {
-            return .Ok(SliceQueue())
-        }
+    /// - Throws:
+    ///   IncompleteError if `n > count`
+    public func splitAt(n: Int) throws -> (dispatch_data_t, dispatch_data_t) {
+        let suffixLength = count - n
+        guard suffixLength >= 0 else { throw IncompleteError(requestedCount: -suffixLength) }
 
-        guard !slices.isEmpty else { return .Incomplete(requesting: count) }
+        let prefix = dispatch_data_create_subrange(self, 0, n)
+        let suffix = dispatch_data_create_subrange(self, n, suffixLength)
+        return (prefix, suffix)
+    }
 
-        assert(count > 0)
-
-        let firstSlice = slices[0]
-
-        // Handle the common case where the first slice is long enough.
+    public func resized(n: Int) -> dispatch_data_t {
         switch count {
-        case 0 ..< firstSlice.count:
-            let splitIndex = firstSlice.startIndex.advancedBy(count)
-            let removedPart = SliceQueue([firstSlice.prefixUpTo(splitIndex)])
-            slices[0] = firstSlice.suffixFrom(splitIndex)
-            return .Ok(removedPart)
-
-        case firstSlice.count:
-            let removedPart = SliceQueue([firstSlice])
-            slices.removeFirst()
-            return .Ok(removedPart)
-
+        case 0 ..< n:
+            let zeros = createDataWithZeros(n - count)
+            return dispatch_data_create_concat(self, zeros)
+        case n:
+            return self
         default:
-            break
-        }
-
-        var currentLength = 0
-        for (i, slice) in slices.enumerate() {
-            currentLength += slice.count
-
-            switch count {
-            case 0 ..< currentLength:
-                var removedSlices = Array(slices.prefixThrough(i))
-                slices.removeFirst(i)
-
-                let splitPosition = slice.endIndex.advancedBy(count - currentLength)
-                let firstPartialSlice = slice.prefixUpTo(splitPosition)
-                let secondPartialSlice = slice.suffixFrom(splitPosition)
-
-                removedSlices[removedSlices.endIndex.predecessor()] = firstPartialSlice
-                slices[0] = secondPartialSlice
-
-                return .Ok(SliceQueue(removedSlices))
-
-            case currentLength:
-                let removedSlices = Array(slices.prefixThrough(i))
-                slices.removeFirst(i + 1)
-                return .Ok(SliceQueue(removedSlices))
-
-            default:
-                continue
-            }
-        }
-
-        return .Incomplete(requesting: count - currentLength)
-    }
-
-    /// Combines all elements in this queue into a single array slice.
-    public func asArraySlice() -> ArraySlice<T> {
-        switch slices.count {
-        case 0:
-            return ArraySlice()
-        case 1:
-            return slices[0]
-        default:
-            return slices.dropFirst().reduce(slices.first!, combine: +)
-        }
-    }
-
-    /// Writes the content of this queue into the encoder. The encoder may be called multiple times.
-    public func encode(encoder: UnsafeBufferPointer<T> throws -> ()) rethrows -> Int {
-        var encodedCount = 0
-        for slice in slices {
-            try slice.withUnsafeBufferPointer(encoder)
-            encodedCount += slice.count
-        }
-        return encodedCount
-    }
-
-    /// Encodes exactly *n* bytes. If the queue is shorter, pad the end with the supplied element. 
-    /// If the queue is longer, the result will be truncated.
-    ///
-    /// The encoder may be called multiple times.
-    public func encodeExactly(count: Int, padding: T, encoder: UnsafeBufferPointer<T> throws -> ()) rethrows {
-        var encodedCount = 0
-        for slice in slices {
-            encodedCount += slice.count
-            if encodedCount > count {
-                let subsliceIndex = slice.endIndex.advancedBy(count - encodedCount)
-                let subslice = slice.prefixUpTo(subsliceIndex)
-                try subslice.withUnsafeBufferPointer(encoder)
-                return
-            } else {
-                try slice.withUnsafeBufferPointer(encoder)
-            }
-        }
-        if encodedCount < count {
-            let paddingArray = [T](count: count - encodedCount, repeatedValue: padding)
-            try paddingArray.withUnsafeBufferPointer(encoder)
+            return dispatch_data_create_subrange(self, 0, n)
         }
     }
 }
 
-/// Extends an array slice to the end of the queue.
+/// Linearizes this dispatch data. If the data was originally discontinuous, a new piece of 
+/// contiguous data will be created by copying all parts together.
 ///
-/// - Complexity:
-///   O(1).
-public func +=<T>(inout queue: SliceQueue<T>, slice: ArraySlice<T>) {
-    assert(!slice.isEmpty)
-    queue.slices.append(slice)
+/// - Returns:
+///   An unsafe buffer pointing to the raw data. This is only valid while the data itself is alive.
+public func linearize(inout data: dispatch_data_t) -> UnsafeBufferPointer<UInt8> {
+    var ptr: UnsafePointer<Void> = nil
+    var size: Int = 0
+    data = dispatch_data_create_map(data, &ptr, &size)
+    return UnsafeBufferPointer(start: UnsafePointer(ptr), count: size)
 }
 
-/// Extends another queue to the end of this queue.
-///
-/// - Complexity:
-///   O(N).
-public func +=<T>(inout queue: SliceQueue<T>, other: SliceQueue<T>) {
-    queue.slices += other.slices
+/// Creates a piece of data filled with zeros.
+public func createDataWithZeros(n: Int) -> dispatch_data_t {
+    return createData([UInt8](count: n, repeatedValue: 0))
 }
 
-/// Compares if the content of the two queues are equal. How the data are sliced up do not affect
-/// the comparison result, e.g. `[[1, 2], 3] == [[1], [2, 3]]`.
+/// Creates a piece of data from an array.
+public func createData(array: [UInt8]) -> dispatch_data_t {
+    return array.withUnsafeBufferPointer { buffer in
+        dispatch_data_create(buffer.baseAddress, buffer.count, dispatch_get_main_queue(), retaining(array))
+    }
+}
+
+
+/// Extends an array from some dispatch data.
 ///
 /// - Complexity:
-///   O(N).
-public func ==<T>(left: SliceQueue<T>, right: SliceQueue<T>) -> Bool {
-    // TODO: Implementation is too complex.
-    var leftIter = left.slices.generate()
-    var rightIter = right.slices.generate()
-    var leftSlice = leftIter.next()
-    var rightSlice = rightIter.next()
-    while true {
-        var leftExhausted = false
-        var rightExhausted = false
+///   O("2N"). The data will be copied *twice*.
+public func +=(inout left: [UInt8], right: dispatch_data_t) {
+    var right = right
+    let buffer = linearize(&right)
+    left.appendContentsOf(buffer)
+    // ^ is this efficient enough?
+}
 
-        if leftSlice == nil {
-            leftSlice = leftIter.next()
-            leftExhausted = (leftSlice == nil)
-        }
-        if rightSlice == nil {
-            rightSlice = rightIter.next()
-            rightExhausted = (rightSlice == nil)
-        }
-
-        switch (leftExhausted, rightExhausted) {
-        case (true, true):
-            return true
-        case (false, false):
-            break
-        default:
-            return false
-        }
-
-        guard let l = leftSlice else { abort() }
-        guard let r = rightSlice else { abort() }
-
-        let isLeftShorter = l.count < r.count
-
-        let (short, long) = isLeftShorter ? (l, r) : (r, l)
-        let longSplitIndex = long.startIndex.advancedBy(short.count)
-        let longPrefix = long.prefixUpTo(longSplitIndex)
-
-        if short != longPrefix {
-            return false
-        }
-
-        let longSuffix: ArraySlice<T>?
-        longSuffix = (longSplitIndex == long.endIndex) ? nil : long.suffixFrom(longSplitIndex)
-        if isLeftShorter {
-            leftSlice = nil
-            rightSlice = longSuffix
-        } else {
-            leftSlice = longSuffix
-            rightSlice = nil
-        }
+extension SequenceType where Generator.Element: dispatch_data_t {
+    public func concat() -> dispatch_data_t {
+        return reduce(dispatch_data_empty) { dispatch_data_create_concat($0, $1) }
     }
 }
 
 // MARK: - IntSpec
+
+private let DISPATCH_DATA_DESTRUCTOR_DEFAULT: dispatch_block_t? = nil
 
 /** Specification for an integer type. This structure defines how an integer is encoded in binary. */
 public struct IntSpec: Equatable {
@@ -308,9 +188,8 @@ public struct IntSpec: Equatable {
     /** Specification of a little-endian 64-bit unsigned integer. */
     public static let UInt64LE = IntSpec(length: 8, endian: NS_LittleEndian)
 
-    /// Encodes an integer. The encode result will be supplied to the `encoder` (the result will be
-    /// invalidated after the closure exits).
-    public func encode<R>(integer: UIntMax, encoder: UnsafeBufferPointer<UInt8> throws -> R) rethrows -> R {
+    /// Encodes an integer into a data.
+    public func encode(integer: UIntMax) -> dispatch_data_t {
         var prepared: UIntMax
         switch endian {
         case NS_BigEndian:
@@ -321,9 +200,8 @@ public struct IntSpec: Equatable {
             prepared = integer.littleEndian
             break
         }
-        return try withUnsafePointer(&prepared) { ptr in
-            let buffer = UnsafeBufferPointer<UInt8>(start: UnsafePointer(ptr), count: length)
-            return try encoder(buffer)
+        return withUnsafePointer(&prepared) {
+            return dispatch_data_create(UnsafePointer($0), length, dispatch_get_main_queue(), DISPATCH_DATA_DESTRUCTOR_DEFAULT)
         }
     }
 }
@@ -332,30 +210,28 @@ public func ==(left: IntSpec, right: IntSpec) -> Bool {
     return left.length == right.length && left.endian == right.endian
 }
 
-extension ArraySlice {
+extension dispatch_data_t {
     /// Decodes the content of this queue as integer using the given specification.
     ///
     /// - Precondition:
     ///   self.count * sizeof(Generator.Element) >= spec.length
     public func toUIntMax(spec: IntSpec) -> UIntMax {
+        assert(count >= spec.length)
+
         var result: UIntMax = 0
-        withUnsafeBufferPointer { buffer in
-            let byteLength = buffer.count * sizeof(Generator.Element.self)
-            assert(byteLength >= spec.length)
 
-            memcpy(&result, buffer.baseAddress, spec.length)
+        var subrange: dispatch_data_t = dispatch_data_create_subrange(self, 0, spec.length)
+        let buffer = linearize(&subrange)
 
-            switch spec.endian {
-            case NS_BigEndian:
-                let bitShift = (sizeof(UIntMax) - spec.length) * 8
-                result = UIntMax(bigEndian: result) >> UIntMax(bitShift)
-                break
-            default:
-                result = UIntMax(littleEndian: result)
-                break
-            }
+        memcpy(&result, buffer.baseAddress, spec.length)
+
+        switch spec.endian {
+        case NS_BigEndian:
+            let bitShift = (sizeof(UIntMax) - spec.length) * 8
+            return UIntMax(bigEndian: result) >> UIntMax(bitShift)
+        default:
+            return UIntMax(littleEndian: result)
         }
-        return result
     }
 }
 
@@ -379,7 +255,7 @@ public indirect enum BinaryData: Equatable {
     case Integer(UIntMax)
 
     /// Raw bytes.
-    case Bytes(SliceQueue<UInt8>)
+    case Bytes(dispatch_data_t)
 
     /// Sequence of more data.
     case Seq([BinaryData])
@@ -401,7 +277,12 @@ public func ==(left: BinaryData, right: BinaryData) -> Bool {
     case let (.Integer(a), .Integer(b)):
         return a == b
     case let (.Bytes(a), .Bytes(b)):
-        return a == b
+        var a = a
+        var b = b
+        let ab = linearize(&a)
+        let bb = linearize(&b)
+        return ab.count == bb.count && memcmp(ab.baseAddress, bb.baseAddress, ab.count) == 0
+        // ^ TODO: Don't copy when comparing.
     case let (.Seq(a), .Seq(b)):
         return a == b
     case let (.Stop(a, c), .Stop(b, d)):
@@ -574,7 +455,7 @@ private enum BinaryParserNextAction {
 public class BinaryParser {
     private var incompleteDataStack: [IncompleteBinaryData]
     private var variables: [VariableName: UIntMax] = [:]
-    private var queue = SliceQueue<UInt8>()
+    private var data = dispatch_data_empty
 
     /// Initialize the parser using a specification.
     public init(_ spec: BinarySpec) {
@@ -582,23 +463,23 @@ public class BinaryParser {
     }
 
     /// Provide more data to the parser.
-    public func supply(data: SliceQueue<UInt8>) {
-        queue += data
+    public func supply(data: dispatch_data_t) {
+        self.data += data
     }
 
     /// Provide more data to the parser.
     public func supply(data: ArraySlice<UInt8>) {
-        queue += data
+        self.data += data
     }
 
     /// Provide more data to the parser.
     public func supply(data: [UInt8]) {
-        queue += ArraySlice(data)
+        self.data += ArraySlice(data)
     }
 
     /// Obtains the remaining bytes not yet parsed.
-    public var remaining: SliceQueue<UInt8> {
-        return queue
+    public var remaining: dispatch_data_t {
+        return data
     }
 
     /// Performs a parsing step using as many bytes available as possible.
@@ -659,23 +540,23 @@ public class BinaryParser {
                 return .Ok(.Done)
 
             case let .Prepared(.Skip(n)):
-                try queue.removeFirst(n).unwrap()
+                try read(n)
                 return .Ok(pushState(.Empty))
 
             case let .Prepared(.Integer(spec)):
-                let data = try queue.removeFirst(spec.length).unwrap()
-                let integer = data.asArraySlice().toUIntMax(spec)
+                let data = try read(spec.length)
+                let integer = data.toUIntMax(spec)
                 return .Ok(pushState(.Integer(integer)))
 
             case let .Prepared(.Variable(spec, name)):
-                let data = try queue.removeFirst(spec.length).unwrap()
-                let integer = data.asArraySlice().toUIntMax(spec)
+                let data = try read(spec.length)
+                let integer = data.toUIntMax(spec)
                 variables[name] = integer
                 return .Ok(pushState(.Integer(integer)))
 
             case let .Prepared(.Bytes(name)):
                 let length = Int(variables[name]!)
-                let data = try queue.removeFirst(length).unwrap()
+                let data = try read(length)
                 return .Ok(pushState(.Bytes(data)))
 
             case let .Prepared(.Seq(specs)):
@@ -726,7 +607,7 @@ public class BinaryParser {
 
             case let .Prepared(.Until(name, spec)):
                 let length = Int(variables[name]!)
-                let data = try queue.removeFirst(length).unwrap()
+                let data = try read(length)
                 let subparser = BinaryParser(spec)
                 subparser.supply(data)
                 let result = subparser.parseAll()
@@ -755,6 +636,12 @@ public class BinaryParser {
             return .Continue
         }
     }
+
+    private func read(n: Int) throws -> dispatch_data_t {
+        let (prefix, suffix) = try data.splitAt(n)
+        data = suffix
+        return prefix
+    }
 }
 
 // MARK: - BinaryEncoder
@@ -767,78 +654,48 @@ public class BinaryEncoder {
         self.spec = spec
     }
 
-    public func encode(data: BinaryData, encoder: UnsafeBufferPointer<UInt8> throws -> ()) rethrows {
+    public func encode(data: BinaryData) -> dispatch_data_t {
         variables = [:]
-        try encodeRecursively(spec, data, encoder)
+        return encodeRecursively(spec, data)
     }
 
-    private func encodeRecursively(spec: BinarySpec, _ data: BinaryData, _ encoder: UnsafeBufferPointer<UInt8> throws -> ()) rethrows {
+    private func encodeRecursively(spec: BinarySpec, _ data: BinaryData) -> dispatch_data_t {
         switch (spec, data) {
         case let (.Skip(n), .Empty):
-            let zeros = [UInt8](count: n, repeatedValue: 0)
-            try zeros.withUnsafeBufferPointer(encoder)
-            break
-
-        case let (.Skip(n), .Bytes(q)):
-            try q.encodeExactly(n, padding: 0, encoder: encoder)
-            break
+            return createDataWithZeros(n)
 
         case let (.Integer(spec), .Integer(val)):
-            try spec.encode(val, encoder: encoder)
-            break
+            return spec.encode(val)
 
         case let (.Variable(spec, name), .Integer(val)):
             variables[name] = val
-            try spec.encode(val, encoder: encoder)
-            break
+            return spec.encode(val)
 
         case let (.Bytes(name), .Bytes(q)):
-            let encodedCount = try q.encode(encoder)
             let expectedCount = Int(variables[name]!)
-            if expectedCount != encodedCount {
-                fatalError("Expecting to encode \(expectedCount) bytes, but the provided data is \(encodedCount) bytes long")
+            if expectedCount != q.count {
+                fatalError("Expecting to encode \(expectedCount) bytes, but the provided data is \(q.count) bytes long")
             }
-            break
+            return q
 
         case let (.Seq(specs), .Seq(datas)) where specs.count == datas.count:
-            for (subspec, subdata) in zip(specs, datas) {
-                try encodeRecursively(subspec, subdata, encoder)
-            }
-            break
+            return zip(specs, datas).lazy.map(encodeRecursively).concat()
 
         case let (.Until(name, subspec), .Seq(datas)):
             let length = Int(variables[name]!)
-            var currentCount = 0
-            for subdata in datas {
-                try encodeRecursively(subspec, subdata) { subbuffer in
-                    currentCount += subbuffer.count
-                    if currentCount > length {
-                        fatalError("Data \(datas) overflows \(spec), expecting \(length) bytes only, got more than \(currentCount) bytes")
-                    }
-                    try encoder(subbuffer)
-                }
-            }
-            if currentCount < length {
-                let zeros = [UInt8](count: length - currentCount, repeatedValue: 0)
-                try zeros.withUnsafeBufferPointer(encoder)
-            }
-            break
+            return datas.lazy.map { self.encodeRecursively(subspec, $0) }.concat().resized(length)
 
         case let (.Repeat(name, subspec), .Seq(datas)):
             let count = Int(variables[name]!)
             if count != datas.count {
                 fatalError("Expecting exactly \(count) items to encode \(spec), got \(datas.count) items in \(data) instead.")
             }
-            for subdata in datas {
-                try encodeRecursively(subspec, subdata, encoder)
-            }
-            break
+            return datas.lazy.map { self.encodeRecursively(subspec, $0) }.concat()
 
         case let (.Switch(name, cases, def), _):
             let selector = variables[name]!
             let chosen = cases[selector] ?? def
-            try encodeRecursively(chosen, data, encoder)
-            break
+            return encodeRecursively(chosen, data)
 
         default:
             fatalError("Cannot use \(spec) to encode \(data)")
