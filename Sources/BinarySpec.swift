@@ -453,13 +453,16 @@ private enum BinaryParserNextAction {
 /// A parser that reads a byte stream, and decodes into BinaryData, according to the rules in a 
 /// provided BinarySpec.
 @objc public class BinaryParser: NSObject {
-    private var incompleteDataStack: [IncompleteBinaryData]
+    private let initialSpec: BinarySpec
+    private var incompleteDataStack: [IncompleteBinaryData] = []
     private var variables: [VariableName: UIntMax] = [:]
     private var data = dispatch_data_empty
 
     /// Initialize the parser using a specification.
     public init(_ spec: BinarySpec) {
-        incompleteDataStack = [.Prepared(spec)]
+        initialSpec = spec
+        super.init()
+        resetStates()
     }
 
     /// Provide more data to the parser.
@@ -511,18 +514,20 @@ private enum BinaryParserNextAction {
         }
     }
 
+    /// Resets the parsing states. This allows the parser to accept more data or parse the remaining
+    /// bytes using the initial specification again.
+    public func resetStates() {
+        incompleteDataStack = [.Prepared(initialSpec)]
+        variables = [:]
+    }
+
     /// Parses all the bytes available. If the bytes are long enough to provide multiple BinaryData,
     /// all of them will be returned from this method.
     public func parseAll() -> [BinaryData] {
-        let initialStack = incompleteDataStack
-
-        assert(initialStack.count == 1)
-
         var result: [BinaryData] = []
         while case let .Ok(data) = next() where !data.isStop {
             result.append(data)
-            incompleteDataStack = initialStack
-            variables = [:]
+            resetStates()
         }
         return result
     }

@@ -334,6 +334,35 @@ class BinaryParserTest: XCTestCase {
             .Integer(8),
             ])))
     }
+
+    func testReadAgain() {
+        let parser = BinaryParser(.Seq([
+            .Integer(.UInt32LE),
+            .Integer(.UInt32LE),
+            ]))
+
+        parser.supply([1,2,3,4,5,6,7,8])
+        let result = parser.next()
+        XCTAssertEqual(result, Partial.Ok(.Seq([
+            .Integer(0x04030201),
+            .Integer(0x08070605),
+            ])))
+
+        parser.resetStates()
+        parser.supply([9,0,1,2,3,4,5,6,0x11,0x22,0x33,0x44,0x55,0x66,0x77,0x88])
+        let result2 = parser.next()
+        XCTAssertEqual(result2, Partial.Ok(.Seq([
+            .Integer(0x02010009),
+            .Integer(0x06050403),
+            ])))
+
+        parser.resetStates()
+        let result3 = parser.next()
+        XCTAssertEqual(result3, Partial.Ok(.Seq([
+            .Integer(0x44332211),
+            .Integer(0x88776655),
+            ])))
+    }
 }
 
 class BinaryEncoderTest: XCTestCase {
