@@ -32,7 +32,7 @@ class TCPClientTest: XCTestCase {
             let sck = socket(AF_INET, SOCK_STREAM, 0)
             var address = sockaddr_storage(IPv4: "0.0.0.0", port: self.port)
             withUnsafePointer(&address) {
-                bind(sck, UnsafePointer($0), socklen_t($0.memory.ss_len))
+                Darwin.bind(sck, UnsafePointer($0), socklen_t($0.memory.ss_len))
             }
             listen(sck, 5)
 
