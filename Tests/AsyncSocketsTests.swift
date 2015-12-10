@@ -55,7 +55,7 @@ class TCPClientTest: XCTestCase {
         }
     }
 
-    private func runClient(clientActions: (Connection, finish: () -> ()) -> ()) {
+    private func runClient(clientActions: (SocketConnection, finish: () -> ()) -> ()) {
         dispatch_group_enter(dispatchGroup)
         dispatch_async(clientQueue) {
             dispatch_semaphore_wait(self.serverReadySemaphore, DISPATCH_TIME_FOREVER)
@@ -104,7 +104,7 @@ class TCPClientTest: XCTestCase {
             send(sck, msg, msg.count, 0)
         }
 
-        var connection: Connection?
+        var connection: SocketConnection?
         defer { connection?.close() }
 
         runClient { conn, finish in
@@ -148,7 +148,7 @@ class TCPClientTest: XCTestCase {
             }
         }
 
-        var connection: Connection?
+        var connection: SocketConnection?
         defer { connection?.close() }
 
         runClient { conn, finish in
@@ -187,7 +187,7 @@ class TCPClientTest: XCTestCase {
             XCTAssertEqual(Array(buffer[0 ..< 12]), rawData)
         }
 
-        var connection: Connection?
+        var connection: SocketConnection?
         defer { connection?.close() }
 
         runClient { conn, finish in
@@ -256,7 +256,7 @@ class TCPClientTest: XCTestCase {
             send(sck, linearized.baseAddress, linearized.count, 0)
         }
 
-        var connection: Connection?
+        var connection: SocketConnection?
         defer { connection?.close() }
 
         runClient { conn, finish in

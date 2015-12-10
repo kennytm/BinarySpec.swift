@@ -28,9 +28,8 @@ extension sockaddr_storage {
 private let QueueOwnerKey: NSString = "BinarySpec.DebugQueueOwner"
 private let QueueOwnerKeyPtr = UnsafePointer<Void>(Unmanaged.passUnretained(QueueOwnerKey).toOpaque())
 
-private func serialize(queue: dispatch_queue_t) -> dispatch_queue_t {
-    let label = String(dispatch_queue_get_label(queue))
-    let serialQueue = dispatch_queue_create("\(label)-Serialized", DISPATCH_QUEUE_SERIAL)
+private func serialize(queue: dispatch_queue_t, name: String) -> dispatch_queue_t {
+    let serialQueue = dispatch_queue_create(name, DISPATCH_QUEUE_SERIAL)
     dispatch_set_target_queue(serialQueue, queue)
     return serialQueue
 }
@@ -79,14 +78,22 @@ public class QueueOwner: QueueOwnerType {
     }
 }
 
+// MARK: - Result
+
+public enum SocketResult<T> {
+    case Ok(T)
+    case POSIXError(errno_t)
+    case Closed
+}
+
 // MARK: - Connection
 
 private class ConnectionImpl: QueueOwner {
     private var channel: dispatch_io_t?
-    private weak var parent: Connection?
+    private weak var parent: SocketConnection?
 
-    private init(io: dispatch_io_t, parent: Connection) {
-        super.init(serialize(parent.queue))
+    private init(io: dispatch_io_t, parent: SocketConnection) {
+        super.init(serialize(parent.queue, name: "ConnectionImpl"))
         channel = io
         self.parent = parent
     }
@@ -125,20 +132,44 @@ private class ConnectionImpl: QueueOwner {
     }
 }
 
+private class ReadHandler: QueueOwner {
+    private var handler: (SocketResult<dispatch_data_t> -> ())?
+
+    private func release() -> (SocketResult<dispatch_data_t> -> ())? {
+        return sync {
+            let oldHandler = $0.handler
+            $0.handler = nil
+            return oldHandler
+        }
+    }
+
+    private func store(newHandler: (SocketResult<dispatch_data_t> -> ())?) {
+        async {
+            $0.handler = newHandler
+        }
+    }
+
+    private func load() -> (SocketResult<dispatch_data_t> -> ())? {
+        return sync {
+            return $0.handler
+        }
+    }
+}
+
 /// Wraps a full-duplex TCP connection driven by GCD (dispatch_io).
-public final class Connection: QueueOwner {
+public final class SocketConnection: QueueOwner {
     private var impl: ConnectionImpl!
-    private var readHandler: (SocketResult<dispatch_data_t> -> ())?
+    private let readHandler: ReadHandler
 
     private init(fd: dispatch_fd_t, queue: dispatch_queue_t) {
+        readHandler = ReadHandler(serialize(queue, name: "ReadHandler"))
         super.init(queue)
 
         let io = dispatch_io_create(DISPATCH_IO_STREAM, fd, queue) { _ in
             Darwin.close(fd)
 
-            guard let handler = self.readHandler else { return }
-            self.readHandler = nil
-            
+            guard let handler = self.readHandler.release() else { return }
+
             var errorCode = errno_t(0)
             var len = socklen_t(sizeofValue(errorCode))
             getsockopt(fd, SOL_SOCKET, SO_ERROR, &errorCode, &len)
@@ -151,7 +182,7 @@ public final class Connection: QueueOwner {
 
     /// Starts the `recv()` loop. The loop will end only after the socket is disconnected.
     public func startRecvLoop(reader: SocketResult<dispatch_data_t> -> ()) {
-        readHandler = reader
+        readHandler.store(reader)
         impl.async {
             $0.readOnce()
         }
@@ -160,11 +191,13 @@ public final class Connection: QueueOwner {
     private func informRead(done: Bool, _ data: dispatch_data_t?, _ error: errno_t) {
         assertOwnerQueue()
 
+        let handler = readHandler.load()
+
         if let data = data {
             if data.isEmpty && done {
-                readHandler?(.Closed)
+                handler?(.Closed)
             } else {
-                readHandler?(.Ok(data))
+                handler?(.Ok(data))
                 impl.async {
                     $0.readOnce()
                 }
@@ -172,10 +205,10 @@ public final class Connection: QueueOwner {
             }
         }
         if error != 0 {
-            readHandler?(.POSIXError(error))
+            handler?(.POSIXError(error))
         }
 
-        readHandler = nil
+        readHandler.store(nil)
         close()
     }
 
@@ -193,13 +226,9 @@ public final class Connection: QueueOwner {
     }
 }
 
-public enum SocketResult<T> {
-    case Ok(T)
-    case POSIXError(errno_t)
-    case Closed
-}
+// MARK: - Socket
 
-public typealias ConnectionHandler = SocketResult<Connection> -> ()
+public typealias ConnectionHandler = SocketResult<SocketConnection> -> ()
 
 private class SocketImpl: QueueOwner {
     private var sck: dispatch_fd_t
@@ -210,7 +239,7 @@ private class SocketImpl: QueueOwner {
     private init(sck: dispatch_fd_t, parent: Socket) {
         self.sck = sck
         self.parent = parent
-        super.init(serialize(parent.queue))
+        super.init(serialize(parent.queue, name: "SocketImpl"))
     }
 
     private func dispose() {
@@ -373,7 +402,7 @@ public class Socket: QueueOwner {
 
     private func addConnectionFromRawSocket(fd: dispatch_fd_t) {
         assertOwnerQueue()
-        let connection = Connection(fd: fd, queue: queue)
+        let connection = SocketConnection(fd: fd, queue: queue)
         connectionHandler(.Ok(connection))
     }
 
