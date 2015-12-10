@@ -17,15 +17,6 @@ License.
 import XCTest
 @testable import BinarySpec
 
-func XCTAssertEqual(left: dispatch_data_t, _ right: [UInt8], line: UInt = __LINE__) {
-    var left = left
-    let leftBuffer = linearize(&left)
-    right.withUnsafeBufferPointer { rightBuffer in
-        XCTAssertEqual(leftBuffer.count, rightBuffer.count, line: line)
-        XCTAssertEqual(memcmp(leftBuffer.baseAddress, rightBuffer.baseAddress, leftBuffer.count), 0, line: line)
-    }
-}
-
 class DispatchDataTest: XCTestCase {
     func testLinearize() {
         var dd = dispatch_data_empty
