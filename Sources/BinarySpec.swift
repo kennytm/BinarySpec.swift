@@ -179,6 +179,10 @@ public struct IntSpec: Equatable {
     public static let UInt16BE = IntSpec(length: 2, endian: NS_BigEndian)
     /** Specification of a little-endian 16-bit unsigned integer. */
     public static let UInt16LE = IntSpec(length: 2, endian: NS_LittleEndian)
+    /** Specification of a big-endian 24-bit unsigned integer. */
+    public static let UInt24BE = IntSpec(length: 3, endian: NS_BigEndian)
+    /** Specification of a little-endian 24-bit unsigned integer. */
+    public static let UInt24LE = IntSpec(length: 3, endian: NS_LittleEndian)
     /** Specification of a big-endian 32-bit unsigned integer. */
     public static let UInt32BE = IntSpec(length: 4, endian: NS_BigEndian)
     /** Specification of a little-endian 32-bit unsigned integer. */
@@ -268,6 +272,26 @@ public indirect enum BinaryData: Equatable {
             return false
         }
     }
+
+    /// Access to an indexed item in the data, assuming it is a sequence.
+    public subscript(index: Int) -> BinaryData {
+        return seq[index]
+    }
+
+    public var integer: UIntMax {
+        guard case let .Integer(a) = self else { fatalError() }
+        return a
+    }
+
+    public var bytes: dispatch_data_t {
+        guard case let .Bytes(a) = self else { fatalError() }
+        return a
+    }
+
+    public var seq: [BinaryData] {
+        guard case let .Seq(a) = self else { fatalError() }
+        return a
+    }
 }
 
 public func ==(left: BinaryData, right: BinaryData) -> Bool {
@@ -295,21 +319,7 @@ public func ==(left: BinaryData, right: BinaryData) -> Bool {
 // MARK: - BinarySpec
 
 /// Type of a variable name.
-public typealias VariableName = StaticString
-
-extension VariableName: Hashable {
-    public var hashValue: Int {
-        return stringValue.hashValue
-    }
-}
-
-public func ==(left: VariableName, right: VariableName) -> Bool {
-    return left.withUTF8Buffer { a in
-        right.withUTF8Buffer { b in
-            return a.count == b.count && memcmp(a.baseAddress, b.baseAddress, a.count) == 0
-        }
-    }
-}
+public typealias VariableName = String
 
 /// An intermediate error thrown when a `.Stop` spec is encountered.
 private struct StopParsingError: ErrorType {
@@ -367,6 +377,41 @@ public indirect enum BinarySpec: Equatable {
     ///     The default case when none of the cases match. Supply `.Stop` here if no default case
     ///     is expected.
     case Switch(selector: VariableName, cases: [UIntMax: BinarySpec], `default`: BinarySpec)
+
+    /// Parses a format string into a specification. The format language is as following:
+    ///
+    /// <table>
+    /// <tr><th>Character<th>Meaning
+    /// <tr><td>&gt;<td>Switch to big-endian for all following integer types
+    /// <tr><td>&lt;<td>Switch to little-endian for all following integer types
+    /// <tr><td>B<td>Reads a byte
+    /// <tr><td>H<td>Reads a 16-bit (2-byte) integer
+    /// <tr><td>T<td>Reads a 24-bit (3-byte) integer
+    /// <tr><td>I<td>Reads a 32-bit (4-byte) integer
+    /// <tr><td>Q<td>Reads a 64-bit (8-byte) integer
+    /// <tr><td><var>6</var><var>Q</var><td>Repeats the integer <var>Q</var> for <var>6</var> times.
+    /// <tr><td><var>24</var>x<td>Skips <var>24</var> bytes
+    /// <tr><td>%<var>Q</var><td>Defines a variable for integer type <var>Q</var>
+    /// <tr><td>s<td>Reads a <tt>.Bytes</tt>. The first unused variable will be used for the length.
+    /// <tr><td>(…)<td>Reads an <tt>.Until</tt>
+    /// <tr><td>{ 0xff=…, 0x100=…, *=… }<td>Reads a <tt>.Switch</tt>
+    /// </table>
+    ///
+    /// For instance, the ADB packet can be represented as
+    ///
+    ///     "<3I%I2Is"
+    ///
+    /// while the HTTP/2 frame can be written as
+    ///
+    ///     ">%TBBIs"
+    ///
+    /// All integers can be decimal (`123`) or hexadecimal (`0x7fe`). The format string is
+    /// case-insensitive. Whitespaces will be ignored.
+    public init(parse string: String, variablePrefix: String = "") {
+        let parser = BinarySpecParser(variablePrefix: variablePrefix)
+        parser.parse(string)
+        self = parser.spec
+    }
 }
 
 public func ==(left: BinarySpec, right: BinarySpec) -> Bool {
@@ -707,4 +752,3 @@ private enum BinaryParserNextAction {
         }
     }
 }
-

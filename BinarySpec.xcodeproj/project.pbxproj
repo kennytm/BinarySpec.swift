@@ -10,11 +10,12 @@
 		9C2A10CD1C17CA1F00FF2DAE /* AsyncSockets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C2A10CC1C17CA1F00FF2DAE /* AsyncSockets.swift */; };
 		9C2A10D01C17DF3C00FF2DAE /* AsyncSocketsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C2A10CE1C17DEFC00FF2DAE /* AsyncSocketsTests.swift */; };
 		9C2A10D31C1872A200FF2DAE /* Utils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C2A10D11C18729C00FF2DAE /* Utils.swift */; };
-		9C7467821C15E86600AF2C8E /* README.md in Sources */ = {isa = PBXBuildFile; fileRef = 9C7467811C15E86600AF2C8E /* README.md */; };
+		9C9A206E1C1EBBD40063567B /* BinarySpecParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C9A206D1C1EBBD40063567B /* BinarySpecParserTests.swift */; };
 		9CD20AE21C123137007899F2 /* BinarySpec.h in Headers */ = {isa = PBXBuildFile; fileRef = 9CD20AE11C123137007899F2 /* BinarySpec.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		9CD20AE91C123137007899F2 /* BinarySpec.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9CD20ADF1C123137007899F2 /* BinarySpec.framework */; };
 		9CD20AEE1C123137007899F2 /* BinarySpecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CD20AED1C123137007899F2 /* BinarySpecTests.swift */; };
 		9CD20AF71C12326D007899F2 /* BinarySpec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CD20AF61C12326D007899F2 /* BinarySpec.swift */; };
+		9CDA92251C1DF8E700A0DC09 /* BinarySpecParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C1D2E8C1C19C53200D76A34 /* BinarySpecParser.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -28,10 +29,12 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		9C1D2E8C1C19C53200D76A34 /* BinarySpecParser.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = BinarySpecParser.swift; sourceTree = "<group>"; };
 		9C2A10CC1C17CA1F00FF2DAE /* AsyncSockets.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AsyncSockets.swift; sourceTree = "<group>"; };
 		9C2A10CE1C17DEFC00FF2DAE /* AsyncSocketsTests.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AsyncSocketsTests.swift; sourceTree = "<group>"; };
 		9C2A10D11C18729C00FF2DAE /* Utils.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Utils.swift; sourceTree = "<group>"; };
 		9C7467811C15E86600AF2C8E /* README.md */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		9C9A206D1C1EBBD40063567B /* BinarySpecParserTests.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = BinarySpecParserTests.swift; sourceTree = "<group>"; };
 		9CD20ADF1C123137007899F2 /* BinarySpec.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = BinarySpec.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		9CD20AE11C123137007899F2 /* BinarySpec.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BinarySpec.h; sourceTree = "<group>"; };
 		9CD20AE31C123137007899F2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -85,6 +88,7 @@
 				9CD20AE11C123137007899F2 /* BinarySpec.h */,
 				9CD20AE31C123137007899F2 /* Info.plist */,
 				9CD20AF61C12326D007899F2 /* BinarySpec.swift */,
+				9C1D2E8C1C19C53200D76A34 /* BinarySpecParser.swift */,
 				9C2A10CC1C17CA1F00FF2DAE /* AsyncSockets.swift */,
 			);
 			path = Sources;
@@ -96,6 +100,7 @@
 				9C2A10D11C18729C00FF2DAE /* Utils.swift */,
 				9CD20AED1C123137007899F2 /* BinarySpecTests.swift */,
 				9C2A10CE1C17DEFC00FF2DAE /* AsyncSocketsTests.swift */,
+				9C9A206D1C1EBBD40063567B /* BinarySpecParserTests.swift */,
 				9CD20AEF1C123137007899F2 /* Info.plist */,
 			);
 			path = Tests;
@@ -210,7 +215,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				9C2A10CD1C17CA1F00FF2DAE /* AsyncSockets.swift in Sources */,
-				9C7467821C15E86600AF2C8E /* README.md in Sources */,
+				9CDA92251C1DF8E700A0DC09 /* BinarySpecParser.swift in Sources */,
 				9CD20AF71C12326D007899F2 /* BinarySpec.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -221,6 +226,7 @@
 			files = (
 				9CD20AEE1C123137007899F2 /* BinarySpecTests.swift in Sources */,
 				9C2A10D01C17DF3C00FF2DAE /* AsyncSocketsTests.swift in Sources */,
+				9C9A206E1C1EBBD40063567B /* BinarySpecParserTests.swift in Sources */,
 				9C2A10D31C1872A200FF2DAE /* Utils.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
