@@ -12,7 +12,8 @@ Installing
 
 BinarySpec currently only supports [CocoaSeeds](https://github.com/devxoul/CocoaSeeds).
 
-    github 'kennytm/BinarySpec.swift', '0.2.0', :files=>'Sources/*.{h,swift}'
+    github 'antitypical/Result', '1.0.1', :files=>'Result/*.swift'
+    github 'kennytm/BinarySpec.swift', '0.3.0', :files=>'Sources/*.{h,swift}'
 
 License
 -------

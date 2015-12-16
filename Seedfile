@@ -1,0 +1,4 @@
+target :BinarySpec do
+    github 'antitypical/Result', '1.0.1', :files=>'Result/*.swift'
+end
+

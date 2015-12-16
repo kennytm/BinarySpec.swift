@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		6CAEF5E7CA83BFD7BEAF6B28 /* ResultType.swift in Sources */ = {isa = PBXBuildFile; fileRef = 580DF177A1A8B1DF500CADA7 /* ResultType.swift */; };
 		9C2A10CD1C17CA1F00FF2DAE /* AsyncSockets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C2A10CC1C17CA1F00FF2DAE /* AsyncSockets.swift */; };
 		9C2A10D01C17DF3C00FF2DAE /* AsyncSocketsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C2A10CE1C17DEFC00FF2DAE /* AsyncSocketsTests.swift */; };
 		9C2A10D31C1872A200FF2DAE /* Utils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C2A10D11C18729C00FF2DAE /* Utils.swift */; };
@@ -16,6 +17,7 @@
 		9CD20AEE1C123137007899F2 /* BinarySpecTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CD20AED1C123137007899F2 /* BinarySpecTests.swift */; };
 		9CD20AF71C12326D007899F2 /* BinarySpec.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CD20AF61C12326D007899F2 /* BinarySpec.swift */; };
 		9CDA92251C1DF8E700A0DC09 /* BinarySpecParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C1D2E8C1C19C53200D76A34 /* BinarySpecParser.swift */; };
+		ADA54D839A3D1AA0EF57C055 /* Result.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9257C5FABA335E5F060CB7F7 /* Result.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -29,6 +31,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		580DF177A1A8B1DF500CADA7 /* ResultType.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ResultType.swift; path = Seeds/Result/Result/ResultType.swift; sourceTree = "<group>"; };
+		9257C5FABA335E5F060CB7F7 /* Result.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Result.swift; path = Seeds/Result/Result/Result.swift; sourceTree = "<group>"; };
 		9C1D2E8C1C19C53200D76A34 /* BinarySpecParser.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = BinarySpecParser.swift; sourceTree = "<group>"; };
 		9C2A10CC1C17CA1F00FF2DAE /* AsyncSockets.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AsyncSockets.swift; sourceTree = "<group>"; };
 		9C2A10CE1C17DEFC00FF2DAE /* AsyncSocketsTests.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AsyncSocketsTests.swift; sourceTree = "<group>"; };
@@ -63,6 +67,23 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		0739FA024AB80925B32D64D1 /* Seeds */ = {
+			isa = PBXGroup;
+			children = (
+				6569B225928F21A4A639BB22 /* Result */,
+			);
+			name = Seeds;
+			sourceTree = "<group>";
+		};
+		6569B225928F21A4A639BB22 /* Result */ = {
+			isa = PBXGroup;
+			children = (
+				9257C5FABA335E5F060CB7F7 /* Result.swift */,
+				580DF177A1A8B1DF500CADA7 /* ResultType.swift */,
+			);
+			name = Result;
+			sourceTree = "<group>";
+		};
 		9CD20A9A1C12293C007899F2 = {
 			isa = PBXGroup;
 			children = (
@@ -70,6 +91,7 @@
 				9CD20AE01C123137007899F2 /* Sources */,
 				9CD20AEC1C123137007899F2 /* Tests */,
 				9CD20AA41C12293C007899F2 /* Products */,
+				0739FA024AB80925B32D64D1 /* Seeds */,
 			);
 			sourceTree = "<group>";
 		};
@@ -163,7 +185,7 @@
 			isa = PBXProject;
 			attributes = {
 				LastSwiftUpdateCheck = 0710;
-				LastUpgradeCheck = 0710;
+				LastUpgradeCheck = 0720;
 				ORGANIZATIONNAME = kennytm;
 				TargetAttributes = {
 					9CD20ADE1C123137007899F2 = {
@@ -217,6 +239,8 @@
 				9C2A10CD1C17CA1F00FF2DAE /* AsyncSockets.swift in Sources */,
 				9CDA92251C1DF8E700A0DC09 /* BinarySpecParser.swift in Sources */,
 				9CD20AF71C12326D007899F2 /* BinarySpec.swift in Sources */,
+				ADA54D839A3D1AA0EF57C055 /* Result.swift in Sources */,
+				6CAEF5E7CA83BFD7BEAF6B28 /* ResultType.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -246,8 +270,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				DEFINES_MODULE = YES;
+				ENABLE_TESTABILITY = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 7.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks @loader_path/../Frameworks";
+				ONLY_ACTIVE_ARCH = YES;
 			};
 			name = Debug;
 		};

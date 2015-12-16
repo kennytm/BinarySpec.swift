@@ -18,43 +18,12 @@ import Dispatch
 
 // MARK: - Partial
 
-public struct IncompleteError: ErrorType {
+public struct IncompleteError: ErrorType, Equatable {
     public let requestedCount: Int
-
-    public func asPartial<T>() -> Partial<T> {
-        return .Incomplete(requesting: requestedCount)
-    }
 }
 
-/// Represents the result of reading from a partial data stream.
-public enum Partial<T: Equatable>: Equatable {
-    /// Reading is succesful. The associated member contains the reading result.
-    case Ok(T)
-
-    /// Not enough data to read. The associated member provides at least how many more bytes are
-    /// needed to complete the read.
-    case Incomplete(requesting: Int)
-
-    /// Returns the wrapped object if it is `.Done`. Throws `IncompleteError` if it is `.Incomplete`.
-    public func unwrap() throws -> T {
-        switch self {
-        case let .Ok(a):
-            return a
-        case let .Incomplete(n):
-            throw IncompleteError(requestedCount: n)
-        }
-    }
-}
-
-public func ==<T>(left: Partial<T>, right: Partial<T>) -> Bool {
-    switch (left, right) {
-    case let (.Ok(l), .Ok(r)):
-        return l == r
-    case let (.Incomplete(l), .Incomplete(r)):
-        return l == r
-    default:
-        return false
-    }
+public func ==(left: IncompleteError, right: IncompleteError) -> Bool {
+    return left.requestedCount == right.requestedCount
 }
 
 // MARK: - dispatch_data_t
@@ -321,16 +290,6 @@ public func ==(left: BinaryData, right: BinaryData) -> Bool {
 /// Type of a variable name.
 public typealias VariableName = String
 
-/// An intermediate error thrown when a `.Stop` spec is encountered.
-private struct StopParsingError: ErrorType {
-    let spec: BinarySpec
-    let value: UIntMax
-
-    func toBinaryData() -> BinaryData {
-        return .Stop(spec, value)
-    }
-}
-
 /// A specification of how a raw binary data stream should be parsed.
 public indirect enum BinarySpec: Equatable {
     /// Reads _n_ bytes and ignore the result. Decodes to `BinaryData.Empty`. When encoded, this
@@ -493,6 +452,7 @@ private indirect enum IncompleteBinaryData {
 private enum BinaryParserNextAction {
     case Continue
     case Done
+    case Stop(BinarySpec, UIntMax)
 }
 
 /// A parser that reads a byte stream, and decodes into BinaryData, according to the rules in a 
@@ -533,30 +493,31 @@ private enum BinaryParserNextAction {
     /// Performs a parsing step using as many bytes available as possible.
     ///
     /// - Returns:
-    ///   On succeed, returns `.Ok` containing the parsed data. If there is not enough bytes
-    ///   available, returns `.Incomplete` indicating at least how much bytes are needed to proceed
-    ///   to the next step.
+    ///   On succeed, returns `.Success` containing the parsed data. If there is not enough bytes
+    ///   available, returns `.Failure(IncompleteError)` indicating at least how much bytes are
+    ///   needed to proceed to the next step.
     @warn_unused_result
-    public func next() -> Partial<BinaryData> {
-        while true {
-            do {
+    public func next() -> Result<BinaryData, IncompleteError> {
+        do {
+            while true {
                 switch try step() {
-                case .Ok(.Done):
+                case .Done:
                     assert(incompleteDataStack.count == 1)
-                    return .Ok(incompleteDataStack.last!.data)
-                case .Ok(.Continue):
+                    return .Success(incompleteDataStack.last!.data)
+                case let .Stop(spec, value):
+                    let errorData = BinaryData.Stop(spec, value)
+                    incompleteDataStack = [.Done(errorData)]
+                    return .Success(errorData)
+                case .Continue:
                     continue
-                case let .Incomplete(count):
-                    return .Incomplete(requesting: count)
                 }
-            } catch let e as StopParsingError {
-                let errorData = e.toBinaryData()
-                incompleteDataStack = [.Done(errorData)]
-                return .Ok(errorData)
-            } catch {
-                fatalError("Unexepected error being thrown")
             }
+        } catch let e as IncompleteError {
+            return .Failure(e)
+        } catch {
+            fatalError("Encountered unknown error")
         }
+
     }
 
     /// Resets the parsing states. This allows the parser to accept more data or parse the remaining
@@ -570,7 +531,7 @@ private enum BinaryParserNextAction {
     /// all of them will be returned from this method.
     public func parseAll() -> [BinaryData] {
         var result: [BinaryData] = []
-        while case let .Ok(data) = next() where !data.isStop {
+        while case let .Success(data) = next() where !data.isStop {
             result.append(data)
             resetStates()
         }
@@ -579,7 +540,7 @@ private enum BinaryParserNextAction {
 
     /// Performs an atomic parsing step.
     @warn_unused_result
-    private func step() throws -> Partial<BinaryParserNextAction> {
+    private func step() throws -> BinaryParserNextAction {
         let lastState = incompleteDataStack.removeLast()
 
         do {
@@ -587,36 +548,36 @@ private enum BinaryParserNextAction {
             case .Done:
                 assert(incompleteDataStack.isEmpty)
                 incompleteDataStack.append(lastState)
-                return .Ok(.Done)
+                return .Done
 
             case let .Prepared(.Skip(n)):
                 try read(n)
-                return .Ok(pushState(.Empty))
+                return pushState(.Empty)
 
             case let .Prepared(.Integer(spec)):
                 let data = try read(spec.length)
                 let integer = data.toUIntMax(spec)
-                return .Ok(pushState(.Integer(integer)))
+                return pushState(.Integer(integer))
 
             case let .Prepared(.Variable(spec, name)):
                 let data = try read(spec.length)
                 let integer = data.toUIntMax(spec)
                 variables[name] = integer
-                return .Ok(pushState(.Integer(integer)))
+                return pushState(.Integer(integer))
 
             case let .Prepared(.Bytes(name)):
                 let length = Int(variables[name]!)
                 let data = try read(length)
-                return .Ok(pushState(.Bytes(data)))
+                return pushState(.Bytes(data))
 
             case let .Prepared(.Seq(specs)):
                 if let firstSpec = specs.first {
                     let remainingSpecs = specs.suffixFrom(specs.startIndex.successor())
                     incompleteDataStack.append(.PartialSeq(done: [], remaining: remainingSpecs))
                     incompleteDataStack.append(.Prepared(firstSpec))
-                    return .Ok(.Continue)
+                    return .Continue
                 } else {
-                    return .Ok(pushState(.Seq([])))
+                    return pushState(.Seq([]))
                 }
 
             case let .PartialSeq(done, remaining):
@@ -624,24 +585,24 @@ private enum BinaryParserNextAction {
                     let remainingSpecs = remaining.suffixFrom(remaining.startIndex.successor())
                     incompleteDataStack.append(.PartialSeq(done: done, remaining: remainingSpecs))
                     incompleteDataStack.append(.Prepared(firstSpec))
-                    return .Ok(.Continue)
+                    return .Continue
                 } else {
-                    return .Ok(pushState(.Seq(done)))
+                    return pushState(.Seq(done))
                 }
 
             case let .Prepared(.Repeat(name, spec)):
                 let count = variables[name]!
                 incompleteDataStack.append(.PartialRepeat(done: [], remaining: count, spec: spec))
                 incompleteDataStack.append(.Prepared(spec))
-                return .Ok(.Continue)
+                return .Continue
 
             case let .PartialRepeat(done, remaining, spec):
                 if remaining > 0 {
                     incompleteDataStack.append(.PartialRepeat(done: done, remaining: remaining - 1, spec: spec))
                     incompleteDataStack.append(.Prepared(spec))
-                    return .Ok(.Continue)
+                    return .Continue
                 } else {
-                    return .Ok(pushState(.Seq(done)))
+                    return pushState(.Seq(done))
                 }
 
             case let .Prepared(.Switch(name, cases, def)):
@@ -649,10 +610,10 @@ private enum BinaryParserNextAction {
                 let chosen = cases[selector] ?? def
                 if case .Stop = chosen {
                     let spec = BinarySpec.Switch(selector: name, cases: cases, `default`: def)
-                    throw StopParsingError(spec: spec, value: selector)
+                    return .Stop(spec, selector)
                 } else {
                     incompleteDataStack.append(.Prepared(chosen))
-                    return .Ok(.Continue)
+                    return .Continue
                 }
 
             case let .Prepared(.Until(name, spec)):
@@ -661,15 +622,15 @@ private enum BinaryParserNextAction {
                 let subparser = BinaryParser(spec)
                 subparser.supply(data)
                 let result = subparser.parseAll()
-                return .Ok(pushState(.Seq(result)))
+                return pushState(.Seq(result))
 
             case .Prepared(.Stop):
                 // No need to restore the stack, we will abandon everything anyway.
-                throw StopParsingError(spec: .Stop, value: 0)
+                return .Stop(.Stop, 0)
             }
-        } catch let e as IncompleteError {
+        } catch let e {
             incompleteDataStack.append(lastState)
-            return e.asPartial()
+            throw e
         }
     }
 

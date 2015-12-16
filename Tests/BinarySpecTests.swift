@@ -117,7 +117,7 @@ class BinaryParserTest: XCTestCase {
             .Integer(.UInt64BE)
             ]))
         parser.supply([0x12, 0x12, 0x34, 0x12, 0x34, 0x56, 0x78, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0])
-        let result = try! parser.next().unwrap()
+        let result = try! parser.next().dematerialize()
 
         XCTAssertEqual(result, BinaryData.Seq([
             .Integer(0x12),
@@ -135,7 +135,7 @@ class BinaryParserTest: XCTestCase {
             .Integer(.UInt64LE)
             ]))
         parser.supply([0x12, 0x12, 0x34, 0x12, 0x34, 0x56, 0x78, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0])
-        let result = try! parser.next().unwrap()
+        let result = try! parser.next().dematerialize()
 
         XCTAssertEqual(result, BinaryData.Seq([
             .Integer(0x12),
@@ -150,15 +150,15 @@ class BinaryParserTest: XCTestCase {
 
         parser.supply([0x12, 0x34, 0x56, 0x78])
         let result1 = parser.next()
-        XCTAssertEqual(result1, Partial.Incomplete(requesting: 6))
+        XCTAssertEqual(result1, error: IncompleteError(requestedCount: 6))
 
         parser.supply([0x55, 0x77])
         let result2 = parser.next()
-        XCTAssertEqual(result2, Partial.Incomplete(requesting: 4))
+        XCTAssertEqual(result2, error: IncompleteError(requestedCount: 4))
 
         parser.supply([0xaa, 0xbc, 0xde, 0xff, 0x13])
         let result3 = parser.next()
-        XCTAssertEqual(result3, Partial.Ok(.Empty))
+        XCTAssertEqual(result3, success: .Empty)
         XCTAssertEqual(parser.remaining, [0x13])
     }
 
@@ -167,7 +167,7 @@ class BinaryParserTest: XCTestCase {
         parser.supply([0x10, 0, 1, 2, 3, 4, 5])
 
         let result1 = parser.next()
-        XCTAssertEqual(result1, Partial.Incomplete(requesting: 11))
+        XCTAssertEqual(result1, error: IncompleteError(requestedCount: 11))
 
         parser.supply([6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24])
         let result2 = parser.next()
@@ -175,7 +175,7 @@ class BinaryParserTest: XCTestCase {
             .Integer(0x10),
             .Bytes(createData([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16])),
             ])
-        XCTAssertEqual(result2, Partial.Ok(expected))
+        XCTAssertEqual(result2, success: expected)
         XCTAssertEqual(parser.remaining, [17,18,19,20,21,22,23,24])
     }
 
@@ -189,20 +189,20 @@ class BinaryParserTest: XCTestCase {
         parser.supply([0, 5, 1, 2])
 
         let result1 = parser.next()
-        XCTAssertEqual(result1, Partial.Incomplete(requesting: 3))
+        XCTAssertEqual(result1, error: IncompleteError(requestedCount: 3))
 
         parser.supply([3, 4, 5])
         let result2 = parser.next()
-        XCTAssertEqual(result2, Partial.Incomplete(requesting: 2))
+        XCTAssertEqual(result2, error: IncompleteError(requestedCount: 2))
 
         parser.supply([0, 0])
         let result3 = parser.next()
-        XCTAssertEqual(result3, Partial.Ok(.Seq([
+        XCTAssertEqual(result3, success: .Seq([
             .Integer(5),
             .Bytes(createData([1, 2, 3, 4, 5])),
             .Integer(0),
             .Bytes(dispatch_data_empty)
-            ])))
+            ]))
     }
 
     func testUntil() {
@@ -213,18 +213,18 @@ class BinaryParserTest: XCTestCase {
 
         parser.supply([13, 0x12, 0x34, 0x55, 0x78])
         let result1 = parser.next()
-        XCTAssertEqual(result1, Partial.Incomplete(requesting: 9))
+        XCTAssertEqual(result1, error: IncompleteError(requestedCount: 9))
 
         parser.supply([0x00, 0x00, 0x31, 0x4a, 0xa8, 0x93, 0xa3, 0x85, 0x92, 0x1b, 0xc3, 0x59])
         let result2 = parser.next()
-        XCTAssertEqual(result2, Partial.Ok(.Seq([
+        XCTAssertEqual(result2, success: .Seq([
             .Integer(13),
             .Seq([
                 .Integer(0x78553412),
                 .Integer(0x4a310000),
                 .Integer(0x85a393a8)
                 ]),
-            ])))
+            ]))
         XCTAssertEqual(parser.remaining, [0x1b, 0xc3, 0x59]) // note that the 0x92 is consumed.
     }
 
@@ -234,7 +234,7 @@ class BinaryParserTest: XCTestCase {
             .Until("length", .Integer(.UInt32LE))
             ]))
         parser.supply([4, 1,2,3,4])
-        let result = try! parser.next().unwrap()
+        let result = try! parser.next().dematerialize()
         XCTAssertEqual(result, BinaryData.Seq([.Integer(4), .Seq([.Integer(0x04030201)])]))
     }
 
@@ -244,7 +244,7 @@ class BinaryParserTest: XCTestCase {
             .Until("length", .Integer(.UInt32LE))
             ]))
         parser.supply([0])
-        let result = try! parser.next().unwrap()
+        let result = try! parser.next().dematerialize()
         XCTAssertEqual(result, BinaryData.Seq([.Integer(0), .Seq([])]))
     }
 
@@ -286,7 +286,7 @@ class BinaryParserTest: XCTestCase {
         parser.supply([0x99, 0xcc])
 
         let result = parser.next()
-        XCTAssertEqual(result, Partial.Ok(.Stop(switchSpec, 0x99)))
+        XCTAssertEqual(result, success: .Stop(switchSpec, 0x99))
     }
 
     // A .Stop should render the entire tree unusable until an `.Until`.
@@ -301,7 +301,7 @@ class BinaryParserTest: XCTestCase {
         parser.supply([1,2,3,4,5])
 
         let result = parser.next()
-        XCTAssertEqual(result, Partial.Ok(.Stop(.Stop, 0)))
+        XCTAssertEqual(result, success: .Stop(.Stop, 0))
     }
 
     func testStopInUntil() {
@@ -318,12 +318,12 @@ class BinaryParserTest: XCTestCase {
         parser.supply([4,9, 7,3,5,0, 8])
 
         let result = parser.next()
-        XCTAssertEqual(result, Partial.Ok(.Seq([
+        XCTAssertEqual(result, success: .Seq([
             .Integer(4),
             .Integer(9),
             .Seq([.Seq([.Integer(7), .Integer(3)])]),
             .Integer(8),
-            ])))
+            ]))
     }
 
     func testReadAgain() {
@@ -334,25 +334,25 @@ class BinaryParserTest: XCTestCase {
 
         parser.supply([1,2,3,4,5,6,7,8])
         let result = parser.next()
-        XCTAssertEqual(result, Partial.Ok(.Seq([
+        XCTAssertEqual(result, success: .Seq([
             .Integer(0x04030201),
             .Integer(0x08070605),
-            ])))
+            ]))
 
         parser.resetStates()
         parser.supply([9,0,1,2,3,4,5,6,0x11,0x22,0x33,0x44,0x55,0x66,0x77,0x88])
         let result2 = parser.next()
-        XCTAssertEqual(result2, Partial.Ok(.Seq([
+        XCTAssertEqual(result2, success: .Seq([
             .Integer(0x02010009),
             .Integer(0x06050403),
-            ])))
+            ]))
 
         parser.resetStates()
         let result3 = parser.next()
-        XCTAssertEqual(result3, Partial.Ok(.Seq([
+        XCTAssertEqual(result3, success: .Seq([
             .Integer(0x44332211),
             .Integer(0x88776655),
-            ])))
+            ]))
     }
 }
 
