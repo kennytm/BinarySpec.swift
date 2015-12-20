@@ -409,23 +409,19 @@ private indirect enum IncompleteBinaryData {
     case Done(BinaryData)
 
     /// Partial sequence.
-    case PartialSeq(done: [BinaryData], remaining: ArraySlice<BinarySpec>)
+    case PartialSeq(done: MutableBox<[BinaryData]>, remaining: ArraySlice<BinarySpec>)
 
     /// Partial specification repetition.
-    case PartialRepeat(done: [BinaryData], remaining: UIntMax, spec: BinarySpec)
+    case PartialRepeat(done: MutableBox<[BinaryData]>, remaining: UIntMax, spec: BinarySpec)
 
     /// Append a data to a partial sequence. Fails if this is not `.Partial*`.
-    func fillHole(data: BinaryData) -> IncompleteBinaryData {
+    func fillHole(data: BinaryData) {
         switch self {
-        case let .PartialSeq(done, remaining):
-            var newDone = done
-            newDone.append(data)
-            return .PartialSeq(done: newDone, remaining: remaining)
+        case let .PartialSeq(done, _):
+            done.value.append(data)
 
-        case let .PartialRepeat(done, remaining, spec):
-            var newDone = done
-            newDone.append(data)
-            return .PartialRepeat(done: newDone, remaining: remaining, spec: spec)
+        case let .PartialRepeat(done, _, _):
+            done.value.append(data)
 
         default:
             fatalError("Should not fill in \(data) into \(self)")
@@ -440,9 +436,9 @@ private indirect enum IncompleteBinaryData {
         case let .Done(b):
             return b
         case let .PartialSeq(done, _):
-            return .Seq(done)
+            return .Seq(done.value)
         case let .PartialRepeat(done, _, _):
-            return .Seq(done)
+            return .Seq(done.value)
         }
     }
 }
@@ -573,7 +569,7 @@ private enum BinaryParserNextAction {
             case let .Prepared(.Seq(specs)):
                 if let firstSpec = specs.first {
                     let remainingSpecs = specs.suffixFrom(specs.startIndex.successor())
-                    incompleteDataStack.append(.PartialSeq(done: [], remaining: remainingSpecs))
+                    incompleteDataStack.append(.PartialSeq(done: MutableBox([]), remaining: remainingSpecs))
                     incompleteDataStack.append(.Prepared(firstSpec))
                     return .Continue
                 } else {
@@ -587,12 +583,12 @@ private enum BinaryParserNextAction {
                     incompleteDataStack.append(.Prepared(firstSpec))
                     return .Continue
                 } else {
-                    return pushState(.Seq(done))
+                    return pushState(.Seq(done.value))
                 }
 
             case let .Prepared(.Repeat(name, spec)):
                 let count = variables[name]!
-                incompleteDataStack.append(.PartialRepeat(done: [], remaining: count, spec: spec))
+                incompleteDataStack.append(.PartialRepeat(done: MutableBox([]), remaining: count, spec: spec))
                 incompleteDataStack.append(.Prepared(spec))
                 return .Continue
 
@@ -602,7 +598,7 @@ private enum BinaryParserNextAction {
                     incompleteDataStack.append(.Prepared(spec))
                     return .Continue
                 } else {
-                    return pushState(.Seq(done))
+                    return pushState(.Seq(done.value))
                 }
 
             case let .Prepared(.Switch(name, cases, def)):
@@ -640,10 +636,7 @@ private enum BinaryParserNextAction {
             incompleteDataStack.append(.Done(data))
             return .Done
         } else {
-            let lastIndex = incompleteDataStack.endIndex.predecessor()
-            let lastItem = incompleteDataStack[lastIndex]
-            let filledItem = lastItem.fillHole(data)
-            incompleteDataStack[lastIndex] = filledItem
+            incompleteDataStack.last!.fillHole(data)
             return .Continue
         }
     }
