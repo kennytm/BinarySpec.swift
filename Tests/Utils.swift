@@ -32,7 +32,7 @@ public func XCTAssertEqual(left: dispatch_data_t, _ right: [UInt8], file: String
 
 public func XCTAssertEqual<L, R: Equatable>(res: Result<L, R>, error: R, file: String = __FILE__, line: UInt = __LINE__) {
     guard case let .Failure(e) = res else {
-        XCTFail("Not an error", file: file, line: line)
+        XCTFail("\(res) is not an error", file: file, line: line)
         return
     }
     XCTAssertEqual(e, error, file: file, line: line)
@@ -40,7 +40,15 @@ public func XCTAssertEqual<L, R: Equatable>(res: Result<L, R>, error: R, file: S
 
 public func XCTAssertEqual<L: Equatable, R>(res: Result<L, R>, success: L, file: String = __FILE__, line: UInt = __LINE__) {
     guard case let .Success(s) = res else {
-        XCTFail("Not an success", file: file, line: line)
+        XCTFail("\(res) is not a success", file: file, line: line)
+        return
+    }
+    XCTAssertEqual(s, success, file: file, line: line)
+}
+
+public func XCTAssertEqual<L: Equatable, R>(res: Result<[L], R>, success: [L], file: String = __FILE__, line: UInt = __LINE__) {
+    guard case let .Success(s) = res else {
+        XCTFail("\(res) is not a success", file: file, line: line)
         return
     }
     XCTAssertEqual(s, success, file: file, line: line)

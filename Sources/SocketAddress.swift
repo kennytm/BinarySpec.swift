@@ -253,6 +253,22 @@ public enum SocketAddress: Hashable {
         self.init(ptr)
     }
 
+    /// Obtains a SocketAddress instance from a function that outputs `sockaddr` structures. For
+    /// example:
+    ///
+    /// ```swift
+    /// let (addr, res) = SocketAddress.receive { accept(sck, $0, $1) }
+    /// ```
+    public static func receive<R>(@noescape closure: (UnsafeMutablePointer<sockaddr>, UnsafeMutablePointer<socklen_t>) throws -> R) rethrows -> (SocketAddress?, R) {
+        var storage = sockaddr_storage()
+        var length = socklen_t(sizeofValue(storage))
+        let result = try withUnsafeMutablePointers(&storage, &length) {
+            try closure(UnsafeMutablePointer($0), $1)
+        }
+        let address = SocketAddress(storage)
+        return (address, result)
+    }
+
     public var stringValue: String {
         switch self {
         case let .Internet(host, port):

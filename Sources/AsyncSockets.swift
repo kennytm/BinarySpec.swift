@@ -1,423 +1,477 @@
-//
-//  AsyncSockets.swift
-//  BinarySpec
-//
-//  Created by kennytm on 15-12-09.
-//  Copyright © 2015 kennytm. All rights reserved.
-//
+/*
+
+Copyright 2015 HiHex Ltd.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in
+compliance with the License. You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed under the License is
+distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+implied. See the License for the specific language governing permissions and limitations under the
+License.
+
+*/
 
 import Dispatch
 
-// MARK: Addressing
-
-extension sockaddr_storage {
-    /// Creates a `sockaddr` structure from the string representation.
-    public init(IPv4 host: String, port: UInt16) {
-        var address = sockaddr_in()
-        address.sin_family = sa_family_t(AF_INET)
-        address.sin_len = UInt8(sizeofValue(address))
-        address.sin_addr.s_addr = inet_addr(host)
-        address.sin_port = port.bigEndian
-        self.init()
-        memcpy(&self, &address, sizeofValue(address))
-    }
-}
-
-// MARK: - GCD Utils
-
-private let QueueOwnerKey: NSString = "BinarySpec.DebugQueueOwner"
-private let QueueOwnerKeyPtr = UnsafePointer<Void>(Unmanaged.passUnretained(QueueOwnerKey).toOpaque())
-
-private func serialize(queue: dispatch_queue_t, name: String) -> dispatch_queue_t {
-    let serialQueue = dispatch_queue_create(name, DISPATCH_QUEUE_SERIAL)
-    dispatch_set_target_queue(serialQueue, queue)
-    return serialQueue
-}
-
-public protocol QueueOwnerType {
-    var queue: dispatch_queue_t { get }
-}
-
-extension QueueOwnerType {
-    private func async(closure: Self -> ()) {
-        dispatch_async(queue) {
-            closure(self)
-        }
-    }
-
-    private func isOwnerQueue() -> Bool {
-        let queuePtr = UnsafeMutablePointer<Void>(Unmanaged.passUnretained(queue).toOpaque())
-        let currentQueuePtr = dispatch_get_specific(QueueOwnerKeyPtr)
-        return queuePtr == currentQueuePtr
-    }
-
-    private func assertOwnerQueue() {
-        assert(isOwnerQueue())
-    }
-
-    private func sync<T>(closure: Self -> T) -> T {
-        if isOwnerQueue() {
-            return closure(self)
-        } else {
-            var result: T?
-            dispatch_sync(queue) {
-                result = closure(self)
-            }
-            return result!
-        }
-    }
-}
-
-public class QueueOwner: QueueOwnerType {
-    public let queue: dispatch_queue_t
-
-    private init(_ queue: dispatch_queue_t) {
-        self.queue = queue
-        let queuePtr = UnsafeMutablePointer<Void>(Unmanaged.passUnretained(queue).toOpaque())
-        dispatch_queue_set_specific(queue, QueueOwnerKeyPtr, queuePtr, nil)
-    }
-}
-
-// MARK: - Result
-
-public enum SocketResult<T> {
-    case Ok(T)
-    case POSIXError(errno_t)
-    case Closed
-}
-
-// MARK: - Connection
-
-private class ConnectionImpl: QueueOwner {
-    private var channel: dispatch_io_t?
-    private weak var parent: SocketConnection?
-
-    private init(io: dispatch_io_t, parent: SocketConnection) {
-        super.init(serialize(parent.queue, name: "ConnectionImpl"))
-        channel = io
-        self.parent = parent
-    }
-
-    deinit {
-        dispose()
-    }
-
-    private func dispose() {
-        if let io = channel {
-            dispatch_io_close(io, DISPATCH_IO_STOP)
-            channel = nil
-        }
-    }
-
-    private func readOnce() {
-        assertOwnerQueue()
-
-        guard let parent = parent else { return }
-        guard let channel = channel else { return }
-
-        dispatch_io_read(channel, 0, Int.max, parent.queue, parent.informRead)
-    }
-
-    private func writeOnce(data: dispatch_data_t, completion: (errno_t -> ())?) {
-        assertOwnerQueue()
-
-        guard let parent = parent else { return }
-        guard let channel = channel else { return }
-
-        dispatch_io_write(channel, 0, data, parent.queue) { done, _, err in
-            if done {
-                completion?(err)
-            }
-        }
-    }
-}
-
-private class ReadHandler: QueueOwner {
-    private var handler: (SocketResult<dispatch_data_t> -> ())?
-
-    private func release() -> (SocketResult<dispatch_data_t> -> ())? {
-        return sync {
-            let oldHandler = $0.handler
-            $0.handler = nil
-            return oldHandler
-        }
-    }
-
-    private func store(newHandler: (SocketResult<dispatch_data_t> -> ())?) {
-        async {
-            $0.handler = newHandler
-        }
-    }
-
-    private func load() -> (SocketResult<dispatch_data_t> -> ())? {
-        return sync {
-            return $0.handler
-        }
-    }
-}
-
-/// Wraps a full-duplex TCP connection driven by GCD (dispatch_io).
-public final class SocketConnection: QueueOwner {
-    private var impl: ConnectionImpl!
-    private let readHandler: ReadHandler
-
-    private init(fd: dispatch_fd_t, queue: dispatch_queue_t) {
-        readHandler = ReadHandler(serialize(queue, name: "ReadHandler"))
-        super.init(queue)
-
-        let io = dispatch_io_create(DISPATCH_IO_STREAM, fd, queue) { _ in
-            Darwin.close(fd)
-
-            guard let handler = self.readHandler.release() else { return }
-
-            var errorCode = errno_t(0)
-            var len = socklen_t(sizeofValue(errorCode))
-            getsockopt(fd, SOL_SOCKET, SO_ERROR, &errorCode, &len)
-            handler(.POSIXError(errorCode))
-        }
-        dispatch_io_set_low_water(io, 1)
-
-        impl = ConnectionImpl(io: io, parent: self)
-    }
-
-    /// Starts the `recv()` loop. The loop will end only after the socket is disconnected.
-    public func startRecvLoop(reader: SocketResult<dispatch_data_t> -> ()) {
-        readHandler.store(reader)
-        impl.async {
-            $0.readOnce()
-        }
-    }
-
-    private func informRead(done: Bool, _ data: dispatch_data_t?, _ error: errno_t) {
-        assertOwnerQueue()
-
-        let handler = readHandler.load()
-
-        if let data = data {
-            if data.isEmpty && done {
-                handler?(.Closed)
-            } else {
-                handler?(.Ok(data))
-                impl.async {
-                    $0.readOnce()
-                }
-                return
-            }
-        }
-        if error != 0 {
-            handler?(.POSIXError(error))
-        }
-
-        readHandler.store(nil)
-        close()
-    }
-
-    /// Sends data to the peer.
-    public func send(data: dispatch_data_t, completion: (errno_t -> ())? = nil) {
-        impl.async {
-            $0.writeOnce(data, completion: completion)
-        }
-    }
-
-    public func close() {
-        impl.async {
-            $0.dispose()
-        }
-    }
-}
-
-// MARK: - Socket
-
-public typealias ConnectionHandler = SocketResult<SocketConnection> -> ()
-
-private class SocketImpl: QueueOwner {
-    private var sck: dispatch_fd_t
-    private var connectSource: dispatch_source_t? = nil
-    private var timeoutSource: dispatch_source_t? = nil
-    private weak var parent: Socket?
-
-    private init(sck: dispatch_fd_t, parent: Socket) {
-        self.sck = sck
-        self.parent = parent
-        super.init(serialize(parent.queue, name: "SocketImpl"))
-    }
-
-    private func dispose() {
-        if let src = connectSource {
-            dispatch_source_cancel(src)
-            connectSource = nil
-        }
-        if let src = timeoutSource {
-            dispatch_source_cancel(src)
-            timeoutSource = nil
-        }
-        if sck >= 0 {
-            close(sck)
-            sck = -1
-        }
-    }
-
-    deinit {
-        dispose()
-    }
-
-    private func tryConnect(address: sockaddr_storage, queue: dispatch_queue_t) -> Bool {
-        assertOwnerQueue()
-
-        var addressStorage = address
-        let connectResult = withUnsafePointer(&addressStorage) {
-            connect(sck, UnsafePointer($0), socklen_t($0.memory.ss_len))
-        }
-
-        if connectResult == 0 {
-            dispatch_async(queue) {
-                self.parent?.informClientConnected()
-            }
-            return false
-        } else {
-            switch errno {
-            case EINPROGRESS, EWOULDBLOCK:
-                return true
-            case let e:
-                dispatch_async(queue) {
-                    self.parent?.informError(e)
-                }
-                return false
-            }
-        }
-    }
-
-    private func addTimeoutTimer(queue: dispatch_queue_t, timeout: dispatch_time_t) {
-        guard timeout != DISPATCH_TIME_FOREVER else { return }
-
-        assertOwnerQueue()
-
-        let timeoutSrc = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, queue)
-        timeoutSource = timeoutSrc
-        dispatch_source_set_timer(timeoutSrc, timeout, DISPATCH_TIME_FOREVER, 0)
-        dispatch_source_set_event_handler(timeoutSrc) { [weak self] _ in
-            self?.parent?.informError(ETIMEDOUT)
-        }
-        dispatch_resume(timeoutSrc)
-    }
-
-    private func addConnectListener(queue: dispatch_queue_t) {
-        assertOwnerQueue()
-
-        let src = dispatch_source_create(DISPATCH_SOURCE_TYPE_WRITE, UInt(sck), 0, queue)
-        connectSource = src
-        dispatch_source_set_event_handler(src) { [weak self] _ in
-            guard let parent = self?.parent else { return }
-
-            let socket = dispatch_fd_t(dispatch_source_get_handle(src))
-            var errorNumber = errno_t(0)
-            var errorNumberSize = socklen_t(sizeofValue(errorNumber))
-            guard getsockopt(socket, SOL_SOCKET, SO_ERROR, &errorNumber, &errorNumberSize) >= 0 else {
-                parent.informError(errno)
-                return
-            }
-            if errorNumber == 0 {
-                parent.informClientConnected()
-            } else {
-                parent.informError(errorNumber)
-            }
-        }
-        dispatch_resume(src)
-    }
-
-    private func connectTo(address: sockaddr_storage, queue: dispatch_queue_t, timeout: dispatch_time_t) {
-        assertOwnerQueue()
-
-        guard tryConnect(address, queue: queue) else { return }
-
-        addTimeoutTimer(queue, timeout: timeout)
-        addConnectListener(queue)
-    }
-
-    private func releaseSocketToConnection() {
-        assertOwnerQueue()
-
-        let oldSocket = sck
-        sck = -1
-        dispose()
-
-        parent?.async {
-            $0.addConnectionFromRawSocket(oldSocket)
-        }
-    }
-}
-
-/// A socket. Suitable for a TCP client, TCP server or UDP client (communicating with a single peer).
-public class Socket: QueueOwner {
-    private var impl: SocketImpl!
-    private let connectionHandler: ConnectionHandler
-
-    private init(family: sa_family_t, queue: dispatch_queue_t, handler: ConnectionHandler) {
-        connectionHandler = handler
-        super.init(queue)
-
-        let sck = BinarySpec_createNonBlockingSocket(Int32(family), SOCK_STREAM)
-        assert(sck >= 0)
-        impl = SocketImpl(sck: sck, parent: self)
-    }
-
-    /// Creates a connected TCP client.
+// MARK: - Read stream
+
+public class AbstractDispatchReader {
+    private let source: dispatch_source_t
+    private let readQueue: dispatch_queue_t
+    private let handlerQueue: dispatch_queue_t
+    private let canRunHandlerDirectly: Bool
+
+    /// Constructs a new reader which parses data from a file descriptor (like a file or a socket).
     ///
     /// - Parameters:
-    ///   - address: 
-    ///     Pointer to a `sockaddr_storage` structure that contains the address of the peer. The
-    ///     `ss_family` and `ss_len` fields must be correctly filled in.
-    ///   - queue:
-    ///     The queue that waits on the socket events.
-    ///   - timeout:
-    ///     The time point which the connection attempt will be canceled.
+    ///   - parser:
+    ///     The parser which decodes the data.
+    ///
+    ///   - fd:
+    ///     A *non-blocking* file-descriptor to receive the data. The file must be open as long as
+    ///     this instance is still alive (not `dispose()`d).
+    ///
+    ///   - readQueue:
+    ///     The queue that waits for data to be available, and performs the reading operation (The
+    ///     actual operation will be done on a serial subqueue of this queue). This is usually the
+    ///     same queue used to open the file/socket.
+    ///
+    ///   - handlerQueue:
+    ///     The queue that executes the handler. This is usually the "main" thread which analyze the
+    ///     received data.
+    ///
     ///   - handler:
-    ///     A handler that will be called once when the connection is established or failed.
-    public convenience init(connect address: sockaddr_storage,
-        queue: dispatch_queue_t,
-        timeout: dispatch_time_t = DISPATCH_TIME_FOREVER,
-        handler: ConnectionHandler) {
-
-            self.init(family: address.ss_family, queue: queue, handler: handler)
-            impl.async {
-                $0.connectTo(address, queue: queue, timeout: timeout)
-            }
-    }
-
-    private func informClientConnected() {
-        assertOwnerQueue()
-        impl.async {
-            $0.releaseSocketToConnection()
+    ///     The closure that parses the decoded data. If possible, multiple pieces of packets will
+    ///     be emitted together.
+    ///
+    ///     If the end-of-file is reached or the socket is closed orderly by the peer, the handler
+    ///     will receive a POSIX-domain error `ESHUTDOWN`. If the reader is disposed manually, it
+    ///     will receive `ECANCELED`.
+    private init(fd: dispatch_fd_t, readQueue: dispatch_queue_t, handlerQueue: dispatch_queue_t) {
+        self.readQueue = dispatch_queue_create("AbstractDispatchReader", DISPATCH_QUEUE_SERIAL)
+        dispatch_set_target_queue(self.readQueue, readQueue)
+        self.handlerQueue = handlerQueue
+        self.canRunHandlerDirectly = readQueue === handlerQueue
+        source = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, UInt(fd), 0, self.readQueue)
+        dispatch_source_set_event_handler(source) { [weak self] in
+            self?.readData()
         }
-    }
-
-    private func informError(errorNumber: errno_t) {
-        assertOwnerQueue()
-        connectionHandler(.POSIXError(errorNumber))
-
-        impl.async {
-            $0.dispose()
-        }
-    }
-
-    private func addConnectionFromRawSocket(fd: dispatch_fd_t) {
-        assertOwnerQueue()
-        let connection = SocketConnection(fd: fd, queue: queue)
-        connectionHandler(.Ok(connection))
-    }
-
-    /// Closes the socket. This makes the socket no longer able to listen to incoming peers. 
-    /// Established connections may still be intact after this call, however.
-    public func close() {
-        impl.async {
-            $0.dispose()
-        }
-        dispatch_async(queue) { [weak self] _ in
-            self?.connectionHandler(.Closed)
-        }
+        dispatch_resume(source)
     }
 
     deinit {
-        close()
+        dispose()
+    }
+
+    /// Stops the reading source. After calling this, the handler will receive `ECANCELED`.
+    public func dispose() {
+        dispose(ECANCELED)
+    }
+
+    /// Checks whether the reader has been disposed (canceled).
+    public var disposed: Bool {
+        return dispatch_source_testcancel(source) != 0
+    }
+
+    private func dispose(errorCode: errno_t) {
+        guard !disposed else { return }
+
+        dispatch_source_cancel(source)
+        dispatch_async(handlerQueue) { [weak self] _ in
+            self?.handleError(errorCode)
+        }
+    }
+
+    private func readData() {
+        let fd = dispatch_fd_t(dispatch_source_get_handle(source))
+        let available = Int(dispatch_source_get_data(source))
+
+        handleDataAvailable(fd, available)
+    }
+
+    private func handleError(error: errno_t) {
+        fatalError("abstract")
+    }
+
+    private func handleDataAvailable(fd: dispatch_fd_t, _ available: Int) {
+        fatalError("abstract")
+    }
+
+    private final func invokeHandlerDirectly<T>(data: T, callback: T -> ()) {
+        if canRunHandlerDirectly {
+            callback(data)
+        } else {
+            dispatch_async(handlerQueue) {
+                callback(data)
+            }
+        }
+    }
+}
+
+
+/// An asynchronous file/socket reader, and generates packets of `BinaryData` from the raw bytes.
+///
+/// This class is a thin wrapper of a `dispatch_source_t(DISPATCH_SOURCE_TYPE_READ)`.
+public final class BinaryReader: AbstractDispatchReader {
+    private let parser: BinaryParser
+    private let handler: Result<[BinaryData], NSError> -> ()
+
+    /// Constructs a new reader which parses data from a file descriptor (like a file or a socket).
+    ///
+    /// - Parameters:
+    ///   - parser:
+    ///     The parser which decodes the data.
+    ///
+    ///   - fd: 
+    ///     A *non-blocking* file-descriptor to receive the data. The file must be open as long as
+    ///     this instance is still alive (not `dispose()`d).
+    ///
+    ///   - readQueue: 
+    ///     The queue that waits for data to be available, and performs the reading operation (The
+    ///     actual operation will be done on a serial subqueue of this queue). This is usually the
+    ///     same queue used to open the file/socket.
+    ///
+    ///   - handlerQueue:
+    ///     The queue that executes the handler. This is usually the "main" thread which analyze the 
+    ///     received data.
+    ///
+    ///   - handler: 
+    ///     The closure that parses the decoded data. If possible, multiple pieces of packets will
+    ///     be emitted together.
+    ///
+    ///     If the end-of-file is reached or the socket is closed orderly by the peer, the handler
+    ///     will receive a POSIX-domain error `ESHUTDOWN`. If the reader is disposed manually, it
+    ///     will receive `ECANCELED`.
+    public init(parser: BinaryParser, fd: dispatch_fd_t, readQueue: dispatch_queue_t, handlerQueue: dispatch_queue_t, handler: Result<[BinaryData], NSError> -> ()) {
+        self.parser = parser
+        self.handler = handler
+        super.init(fd: fd, readQueue: readQueue, handlerQueue: handlerQueue)
+    }
+
+    private override func handleError(error: errno_t) {
+        handler(.Failure(NSError(domain: NSPOSIXErrorDomain, code: Int(error), userInfo: nil)))
+    }
+
+    private override func handleDataAvailable(fd: dispatch_fd_t, _ available: Int) {
+        let buffer = malloc(available)
+        let actual = read(fd, buffer, available)
+
+        guard actual > 0 else {
+            free(buffer)
+            let errorCode = actual == 0 ? ESHUTDOWN : errno
+            dispose(errorCode)
+            return
+        }
+
+        let data = dispatch_data_create(buffer, actual, readQueue, _dispatch_data_destructor_free)
+        parser.supply(data)
+        let result = parser.parseAll()
+        guard !result.isEmpty else { return }
+
+        invokeHandlerDirectly(.Success(result), callback: handler)
+    }
+}
+
+
+/// The synchronous version of BinaryReader.
+public final class SyncBinaryReader {
+    private class Buffer {
+        var data = [BinaryData]()
+        var error: NSError? = nil
+        let semaphore = dispatch_semaphore_create(0)
+
+        func handler(newResult: Result<[BinaryData], NSError>) {
+            assert(error == nil || newResult.error != nil, "Should not receive data after an error is sent")
+            switch newResult {
+            case let .Success(b):
+                data += b
+            case let .Failure(e):
+                error = e
+            }
+            dispatch_semaphore_signal(semaphore)
+        }
+
+        func get() -> Result<BinaryData, NSError>? {
+            if !data.isEmpty {
+                return .Success(data.removeFirst())
+            } else if let err = error {
+                return .Failure(err)
+            } else {
+                return nil
+            }
+        }
+    }
+
+    private var reader: BinaryReader
+    private var buffer = Buffer()
+
+    /// Creates a synchronous reader.
+    ///
+    /// - Parameters:
+    ///   - parser:
+    ///     The parser which decodes the data.
+    ///
+    ///   - fd:
+    ///     A *non-blocking* file-descriptor to receive the data. The file must be open as long as
+    ///     this instance is still alive (not `dispose()`d).
+    ///
+    ///   - queue:
+    ///     The queue that waits for data to be available, and performs the reading operation. This
+    ///     queue should be a background queue, i.e. *not* the one that calls `read()`.
+    public init(parser: BinaryParser, fd: dispatch_fd_t, queue: dispatch_queue_t) {
+        reader = BinaryReader(parser: parser, fd: fd, readQueue: queue, handlerQueue: queue, handler: buffer.handler)
+    }
+
+    public func dispose() {
+        reader.dispose()
+    }
+
+    /// Reads one packet from the reader.
+    ///
+    /// This method **must not** run on the queue given to this reader, as it will lead to deadlock.
+    public func syncRead(timeout timeout: dispatch_time_t = DISPATCH_TIME_FOREVER) -> Result<BinaryData, NSError> {
+        // Pump out cached data if possible.
+        var fastResult: Result<BinaryData, NSError>?
+        dispatch_sync(reader.readQueue) {
+            fastResult = self.buffer.get()
+        }
+        if let a = fastResult {
+            return a
+        }
+
+        // Before actually reading the data, make sure the channel is still open.
+        guard !reader.disposed else {
+            return .Failure(NSError(domain: NSPOSIXErrorDomain, code: Int(ECANCELED), userInfo: nil))
+        }
+
+        let waitResult = dispatch_semaphore_wait(buffer.semaphore, timeout)
+        guard waitResult == 0 else {
+            return .Failure(NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT), userInfo: nil))
+        }
+
+        var result: Result<BinaryData, NSError>!
+        dispatch_sync(reader.readQueue) {
+            result = self.buffer.get()
+        }
+        return result
+    }
+}
+
+// MARK: - Write stream
+
+typealias SyncBinaryWriter = BinaryWriter
+
+/// Wrapper around an asynchronous file writer. This class is a thin wrapper of a 
+/// `dispatch_source_t(DISPATCH_SOURCE_TYPE_WRITE)`.
+public final class BinaryWriter {
+    private struct DataWrittenHandler {
+        var offset: Int
+        var handler: NSError? -> ()
+    }
+
+    private var source: dispatch_source_t
+    private let writeQueue: dispatch_queue_t
+    private var remainingData = dispatch_data_empty
+    private var lastError: NSError? = nil
+    private var suspendCount: Int = 0
+    private var dataWrittenHandlers = [DataWrittenHandler]()
+    private let encoder: BinaryEncoder?
+
+    /// Constructs a new writer which writer data to a file descriptor (like a file or a socket).
+    ///
+    /// - Parameters:
+    ///   - encoder:
+    ///     The encoder to use if you want to write BinaryData.
+    ///
+    ///   - fd:
+    ///     A *non-blocking* file-descriptor to send the data. The file must be open as long as this
+    ///     instance is still alive (not `dispose()`d).
+    ///
+    ///   - writeQueue:
+    ///     The queue that waits for the file ready to receive data, and performs the writing 
+    ///     operation. (The actual operation will be done on a serial subqueue of this queue). This
+    ///     is usually the same queue used to open the file/socket.
+    public init(encoder: BinaryEncoder?, fd: dispatch_fd_t, writeQueue: dispatch_queue_t) {
+        self.writeQueue = dispatch_queue_create("BinaryWriter", DISPATCH_QUEUE_SERIAL)
+        self.encoder = encoder
+        dispatch_set_target_queue(self.writeQueue, writeQueue)
+        source = dispatch_source_create(DISPATCH_SOURCE_TYPE_WRITE, UInt(fd), 0, writeQueue)
+        dispatch_source_set_event_handler(source) { [weak self] in
+            self?.flush()
+        }
+        dispatch_resume(source)
+    }
+
+    deinit {
+        asyncDispose()
+    }
+
+    public func dispose() {
+        dispatch_async(writeQueue) {
+            self.asyncDispose()
+        }
+    }
+
+    private func resumeSource() {
+        let repeatCount = suspendCount
+        suspendCount = 0
+        for _ in 0 ..< repeatCount {
+            dispatch_resume(source)
+        }
+    }
+
+    private func asyncDispose() {
+        resumeSource()
+        dispatch_source_cancel(source)
+
+        remainingData = dispatch_data_empty
+        lastError = NSError(domain: NSPOSIXErrorDomain, code: Int(ECANCELED), userInfo: nil)
+        for h in dataWrittenHandlers {
+            h.handler(lastError)
+        }
+        dataWrittenHandlers.removeAll()
+    }
+
+    private func flush() {
+        guard suspendCount == 0 else { return }
+
+        let totalLength = remainingData.count
+        guard totalLength > 0 else { return }
+
+        let fd = dispatch_fd_t(dispatch_source_get_handle(source))
+        var totalBytesWritten = 0
+
+        dispatch_data_apply(remainingData) { _, _, buffer, size in
+            let bytesWritten = Darwin.write(fd, buffer, size)
+
+            if bytesWritten >= 0 {
+                totalBytesWritten += bytesWritten
+            } else {
+                switch errno {
+                case EAGAIN, EWOULDBLOCK, EINPROGRESS:
+                    break
+                case let e:
+                    self.lastError = NSError(domain: NSPOSIXErrorDomain, code: Int(e), userInfo: nil)
+                }
+            }
+
+            return bytesWritten > 0
+        }
+
+        let remainingLength = totalLength - totalBytesWritten
+        remainingData = dispatch_data_create_subrange(remainingData, totalBytesWritten, remainingLength)
+
+        if remainingLength <= 0 {
+            suspendCount += 1
+            dispatch_suspend(source)
+        }
+
+        var newHandlers = [DataWrittenHandler]()
+        for handler in dataWrittenHandlers {
+            if handler.offset <= totalBytesWritten {
+                handler.handler(nil)
+            } else if lastError != nil {
+                handler.handler(lastError)
+            } else {
+                let newOffset = handler.offset - totalBytesWritten
+                newHandlers.append(DataWrittenHandler(offset: newOffset, handler: handler.handler))
+            }
+        }
+        dataWrittenHandlers = newHandlers
+    }
+
+    private func asyncWrite(data: dispatch_data_t, callback: (NSError? -> ())?) {
+        guard data.count > 0 && lastError == nil else {
+            callback?(lastError)
+            return
+        }
+
+        remainingData = dispatch_data_create_concat(remainingData, data)
+        if let callback = callback {
+            let offset = dispatch_data_get_size(remainingData)
+            dataWrittenHandlers.append(DataWrittenHandler(offset: offset, handler: callback))
+        }
+        resumeSource()
+    }
+
+    /// Asynchronously writes data to the file. The data will be queued until the file is ready to 
+    /// accept more data.
+    public func write(data: dispatch_data_t, callback: (NSError? -> ())? = nil) {
+        dispatch_async(writeQueue) {
+            self.asyncWrite(data, callback: callback)
+        }
+    }
+
+    /// Asynchronously writes data to the file. If you call this method, the encoder argument in the
+    /// constructor must not be nil.
+    public func write(data: BinaryData, callback: (NSError? -> ())? = nil) {
+        write(encoder!.encode(data), callback: callback)
+    }
+
+    /// Synchronously writes data to the file.
+    public func syncWrite(data: dispatch_data_t, timeout: dispatch_time_t = DISPATCH_TIME_FOREVER) -> NSError? {
+        let semaphore = dispatch_semaphore_create(0)
+
+        var result: NSError? = nil
+
+        dispatch_sync(writeQueue) {
+            self.asyncWrite(data) {
+                result = $0
+                dispatch_semaphore_signal(semaphore)
+            }
+        }
+
+        guard dispatch_semaphore_wait(semaphore, timeout) == 0 else {
+            return NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT), userInfo: nil)
+        }
+
+        return result
+    }
+
+    /// Synchronously writes data to the file. If you call this method, the encoder argument in the
+    /// constructor must not be nil.
+    public func syncWrite(data: BinaryData, timeout: dispatch_time_t = DISPATCH_TIME_FOREVER) -> NSError? {
+        return syncWrite(encoder!.encode(data), timeout: timeout)
+    }
+}
+
+// MARK: - Accepted clients stream
+
+/// A stream that asynchronously reports accepted clients of a bound socket.
+public final class SocketAcceptor: AbstractDispatchReader {
+    private let handler: Result<(dispatch_fd_t, SocketAddress?), NSError> -> ()
+    private var counter = 0
+
+    public init(fd: dispatch_fd_t, acceptQueue: dispatch_queue_t, handlerQueue: dispatch_queue_t, handler: Result<(dispatch_fd_t, SocketAddress?), NSError> -> ()) {
+        self.handler = handler
+        super.init(fd: fd, readQueue: acceptQueue, handlerQueue: handlerQueue)
+    }
+
+    private override func handleError(error: errno_t) {
+        handler(.Failure(NSError(domain: NSPOSIXErrorDomain, code: Int(error), userInfo: nil)))
+    }
+
+    private override func handleDataAvailable(fd: dispatch_fd_t, _: Int) {
+        //while true {
+            counter += 1
+            let (addr, client) = SocketAddress.receive { accept(fd, $0, $1) }
+            let result: Result<(dispatch_fd_t, SocketAddress?), NSError>
+            if client >= 0 {
+                result = .Success((client, addr))
+            } else {
+                switch errno {
+                case EAGAIN, EWOULDBLOCK, EINPROGRESS:
+                    print("||||||", counter)
+                    return
+                case let errorCode:
+                    print("//////", errorCode, counter)
+                    result = .Failure(NSError(domain: NSPOSIXErrorDomain, code: Int(errorCode), userInfo: nil))
+                }
+            }
+            invokeHandlerDirectly(result, callback: handler)
+        //}
     }
 }
