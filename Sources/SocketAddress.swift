@@ -334,6 +334,25 @@ public enum SocketAddress: Hashable {
         return storage
     }
 
+    /// If the SocketAddress is an internet address, unpack into an IP address and port.
+    public func toHostAndPort() -> (host: IPAddress, port: UInt16)? {
+        switch self {
+        case let .Internet(host, port):
+            return (host, port)
+        }
+    }
+
+    /// Treats this SocketAddress as the host of an HTTP server, and convert to a URL.
+    ///
+    /// - Important:
+    ///   The `path` must begin with a slash, e.g. `"/query?t=1"`.
+    public func toURL(path: String, scheme: String = "http") -> NSURL? {
+        switch self {
+        case .Internet:
+            return NSURL(string: "\(scheme)://\(stringValue)\(path)")
+        }
+    }
+
     public var hashValue: Int {
         switch self {
         case let .Internet(host, port):
