@@ -131,7 +131,7 @@ class ReadTest: XCTestCase {
 
             let address = IPAddress.zero.withPort(port)
             address.withSockaddr {
-                bind(sck, $0, $1)
+                Darwin.bind(sck, $0, $1)
             }
             listen(sck, 5)
 
@@ -316,7 +316,7 @@ class WriteTest: XCTestCase {
 
             let address = IPAddress.zero.withPort(port)
             address.withSockaddr {
-                bind(sck, $0, $1)
+                Darwin.bind(sck, $0, $1)
             }
             listen(sck, 5)
 
@@ -368,18 +368,22 @@ class AcceptTest: XCTestCase {
         let expectation = expectationWithDescription("All clients connected")
 
         let server = BinarySpec_createNonBlockingSocket(AF_INET, SOCK_STREAM)
-        IPAddress.zero.withPort(33015).withSockaddr { bind(server, $0, $1) }
+        IPAddress.zero.withPort(33015).withSockaddr { Darwin.bind(server, $0, $1) }
         listen(server, SOMAXCONN)
 
         dispatch_async(serverQueue) {
             acceptor = SocketAcceptor(fd: server, acceptQueue: serverQueue, handlerQueue: acceptResultQueue) { res in
+                guard acceptResults.count < 100 else {
+                    precondition(res.error != nil)
+                    return
+                }
+
                 guard case let .Success(fd, _) = res else {
                     preconditionFailure("\(res)")
                 }
                 close(fd)
 
                 acceptResults.append(res)
-                precondition(acceptResults.count <= 100)
                 if acceptResults.count == 100 {
                     expectation.fulfill()
                 }
