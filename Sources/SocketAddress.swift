@@ -342,6 +342,14 @@ public enum SocketAddress: Hashable {
         }
     }
 
+    /// If the SocketAddress is an internet address, obtains the host.
+    public var host: IPAddress? {
+        switch self {
+        case let .Internet(host, _):
+            return host
+        }
+    }
+
     /// Treats this SocketAddress as the host of an HTTP server, and convert to a URL.
     ///
     /// - Important:
@@ -357,6 +365,14 @@ public enum SocketAddress: Hashable {
         switch self {
         case let .Internet(host, port):
             return 0 |+> host |+> port
+        }
+    }
+
+    /// Obtains the socket address family (e.g. AF_INET).
+    public var family: Int32 {
+        switch self {
+        case let .Internet(host, _):
+            return host.family
         }
     }
 }

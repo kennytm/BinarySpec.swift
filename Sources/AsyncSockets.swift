@@ -455,23 +455,19 @@ public final class SocketAcceptor: AbstractDispatchReader {
     }
 
     private override func handleDataAvailable(fd: dispatch_fd_t, _: Int) {
-        //while true {
-            counter += 1
-            let (addr, client) = SocketAddress.receive { accept(fd, $0, $1) }
-            let result: Result<(dispatch_fd_t, SocketAddress?), NSError>
-            if client >= 0 {
-                result = .Success((client, addr))
-            } else {
-                switch errno {
-                case EAGAIN, EWOULDBLOCK, EINPROGRESS:
-                    print("||||||", counter)
-                    return
-                case let errorCode:
-                    print("//////", errorCode, counter)
-                    result = .Failure(NSError(domain: NSPOSIXErrorDomain, code: Int(errorCode), userInfo: nil))
-                }
+        counter += 1
+        let (addr, client) = SocketAddress.receive { accept(fd, $0, $1) }
+        let result: Result<(dispatch_fd_t, SocketAddress?), NSError>
+        if client >= 0 {
+            result = .Success((client, addr))
+        } else {
+            switch errno {
+            case EAGAIN, EWOULDBLOCK, EINPROGRESS:
+                return
+            case let errorCode:
+                result = .Failure(NSError(domain: NSPOSIXErrorDomain, code: Int(errorCode), userInfo: nil))
             }
-            invokeHandlerDirectly(result, callback: handler)
-        //}
+        }
+        invokeHandlerDirectly(result, callback: handler)
     }
 }
