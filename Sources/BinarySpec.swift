@@ -52,6 +52,11 @@ public func +=(inout data: dispatch_data_t, other: dispatch_data_t) {
     data = dispatch_data_create_concat(data, other)
 }
 
+/// Concatenates two data together. Equivalent to calling `dispatch_data_create_concat`.
+public func +(lhs: dispatch_data_t, rhs: dispatch_data_t) -> dispatch_data_t {
+    return dispatch_data_create_concat(lhs, rhs)
+}
+
 extension dispatch_data_t {
     /// Gets the byte length of this data.
     public var count: Int {
@@ -125,7 +130,7 @@ public func +=(inout left: [UInt8], right: dispatch_data_t) {
 
 extension SequenceType where Generator.Element: dispatch_data_t {
     public func concat() -> dispatch_data_t {
-        return reduce(dispatch_data_empty) { dispatch_data_create_concat($0, $1) }
+        return reduce(dispatch_data_empty, combine: +)
     }
 }
 
@@ -653,57 +658,116 @@ private enum BinaryParserNextAction {
 
 // MARK: - BinaryEncoder
 
+/// A placeholder value to tell the binary encoder automatically compute the value of various 
+/// variables (e.g. the length of a byte sequence).
+public let autoCount: UIntMax = ~0x3fff_ffff
+
 @objc public class BinaryEncoder: NSObject {
+    private class VariableInfo {
+        var adjusted: UIntMax
+        var location: Int
+        var spec: IntSpec
+        var offset: IntMax
+
+        var value: UIntMax {
+            get { return adjusted &+ UIntMax(bitPattern: offset) }
+            set(v) { adjusted = v &- UIntMax(bitPattern: offset) }
+        }
+
+        init(value: UIntMax, location: Int, spec: IntSpec, offset: IntMax) {
+            self.adjusted = 0
+            self.location = location
+            self.spec = spec
+            self.offset = offset
+            self.value = value
+        }
+    }
+
     private let spec: BinarySpec
-    private var variables: [VariableName: UIntMax] = [:]
+    private var variables = [VariableName: VariableInfo]()
 
     public init(_ spec: BinarySpec) {
         self.spec = spec
     }
 
     public func encode(data: BinaryData) -> dispatch_data_t {
-        variables = [:]
-        return encodeRecursively(spec, data)
+        variables.removeAll()
+        var encoded = dispatch_data_empty
+        encodeRecursively(&encoded, spec: spec, data: data)
+        return encoded
     }
 
-    private func encodeRecursively(spec: BinarySpec, _ data: BinaryData) -> dispatch_data_t {
+    private func replaceVariable(inout encoded: dispatch_data_t, variable: VariableInfo) {
+        let prefix = dispatch_data_create_subrange(encoded, 0, variable.location)
+        let suffixLocation = variable.location + variable.spec.length
+        let suffixLength = encoded.count - suffixLocation
+        let suffix = dispatch_data_create_subrange(encoded, suffixLocation, suffixLength)
+        let middle = variable.spec.encode(variable.adjusted)
+        encoded = [prefix, middle, suffix].concat()
+    }
+
+    private func encodeRecursively(inout encoded: dispatch_data_t, spec: BinarySpec, data: BinaryData) {
         switch (spec, data) {
         case let (.Skip(n), .Empty):
-            return createDataWithZeros(n)
+            encoded += createDataWithZeros(n)
 
         case let (.Integer(spec), .Integer(val)):
-            return spec.encode(val)
+            encoded += spec.encode(val)
 
         case let (.Variable(spec, name, offset), .Integer(val)):
-            let adjusted = val &- UIntMax(bitPattern: offset)
-            variables[name] = adjusted
-            return spec.encode(adjusted)
+            let info = VariableInfo(value: val, location: encoded.count, spec: spec, offset: offset)
+            variables[name] = info
+            encoded += spec.encode(info.adjusted)
 
         case let (.Bytes(name), .Bytes(q)):
-            let expectedCount = Int(variables[name]!)
-            if expectedCount != q.count {
+            let info = variables[name]!
+            let expectedCount = Int(truncatingBitPattern: info.value)
+            if expectedCount < 0 {
+                info.value = UIntMax(q.count)
+                replaceVariable(&encoded, variable: info)
+            } else if expectedCount != q.count {
                 fatalError("Expecting to encode \(expectedCount) bytes, but the provided data is \(q.count) bytes long")
             }
-            return q
+            encoded += q
 
         case let (.Seq(specs), .Seq(datas)) where specs.count == datas.count:
-            return zip(specs, datas).lazy.map(encodeRecursively).concat()
+            for (subspec, subdata) in zip(specs, datas) {
+                encodeRecursively(&encoded, spec: subspec, data: subdata)
+            }
 
         case let (.Until(name, subspec), .Seq(datas)):
-            let length = Int(variables[name]!)
-            return datas.lazy.map { self.encodeRecursively(subspec, $0) }.concat().resized(length)
+            let info = variables[name]!
+            var subencoded = dispatch_data_empty
+            for subdata in datas {
+                encodeRecursively(&subencoded, spec: subspec, data: subdata)
+            }
+            let length = Int(truncatingBitPattern: info.value)
+            if length < 0 {
+                info.value = UIntMax(subencoded.count)
+                replaceVariable(&encoded, variable: info)
+            } else {
+                subencoded = subencoded.resized(length)
+            }
+            encoded += subencoded
 
         case let (.Repeat(name, subspec), .Seq(datas)):
-            let count = Int(variables[name]!)
-            if count != datas.count {
+            let info = variables[name]!
+            let count = Int(truncatingBitPattern: info.value)
+            if count < 0 {
+                info.value = UIntMax(datas.count)
+                replaceVariable(&encoded, variable: info)
+            } else if count != datas.count {
                 fatalError("Expecting exactly \(count) items to encode \(spec), got \(datas.count) items in \(data) instead.")
             }
-            return datas.lazy.map { self.encodeRecursively(subspec, $0) }.concat()
+
+            for subdata in datas {
+                encodeRecursively(&encoded, spec: subspec, data: subdata)
+            }
 
         case let (.Switch(name, cases, def), _):
             let selector = variables[name]!
-            let chosen = cases[selector] ?? def
-            return encodeRecursively(chosen, data)
+            let chosen = cases[selector.value] ?? def
+            encodeRecursively(&encoded, spec: chosen, data: data)
 
         default:
             fatalError("Cannot use \(spec) to encode \(data)")

@@ -439,4 +439,39 @@ class BinaryEncoderTest: XCTestCase {
 
         XCTAssertEqual(result, [0xff, 0xee, 0xdd, 0xcc, 0xff, 0xee, 0xdd, 0xcc, 0, 0, 0, 0])
     }
+
+    func testAutoVariable() {
+        let spec = BinarySpec.Seq([
+            .Variable(.UInt32LE, "x", offset: -6),
+            .Variable(.UInt32LE, "y", offset: 10),
+            .Bytes("x"),
+            .Until("y", .Integer(.UInt16LE))
+        ])
+
+        let data = BinaryData.Seq([
+            .Integer(autoCount),
+            .Integer(autoCount),
+            .Bytes(createData([0x44, 0x45, 0x46, 0x47, 0x48])),
+            .Seq([
+                .Integer(0x1133),
+                .Integer(0x5611),
+                .Integer(0x931a),
+                .Integer(0x19bb),
+                .Integer(0x551c),
+                .Integer(0xb123),
+                ])
+            ])
+
+        let encoder = BinaryEncoder(spec)
+        let result = encoder.encode(data)
+
+        print(result)
+
+        XCTAssertEqual(result, [
+            11, 0, 0, 0,
+            2, 0, 0, 0,
+            0x44, 0x45, 0x46, 0x47, 0x48,
+            0x33, 0x11, 0x11, 0x56, 0x1a, 0x93, 0xbb, 0x19, 0x1c, 0x55, 0x23, 0xb1,
+            ])
+    }
 }
