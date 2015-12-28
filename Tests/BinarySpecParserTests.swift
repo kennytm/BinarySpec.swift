@@ -138,3 +138,22 @@ class BinarySpecParserTests: XCTestCase {
             ]))
     }
 }
+
+class BinaryDataConvertibleTests: XCTestCase {
+    func testNumbers() {
+        XCTAssertEqual(«5», BinaryData.Integer(5))
+        XCTAssertEqual(«(-5)», BinaryData.Integer(UIntMax(bitPattern: -5)))
+    }
+
+    func testString() {
+        XCTAssertEqual(«"Héĺĺó"», BinaryData.Bytes(createData([0x48, 0xc3, 0xa9, 0xc4, 0xba, 0xc4, 0xba, 0xc3, 0xb3])))
+    }
+
+    func testSequence() {
+        XCTAssertEqual(«[1, 2, 4]», BinaryData.Seq([.Integer(1), .Integer(2), .Integer(4)]))
+    }
+
+    func testComposite() {
+        XCTAssertEqual(«[«1», «[«3», «""»]»]», BinaryData.Seq([.Integer(1), .Seq([.Integer(3), .Bytes(dispatch_data_empty)])]))
+    }
+}

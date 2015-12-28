@@ -289,6 +289,74 @@ public func ==(left: BinaryData, right: BinaryData) -> Bool {
     }
 }
 
+// MARK: - BinaryDataConvertible
+
+/// Protocol for any types that can be converted to a BinaryData.
+public protocol BinaryDataConvertible {
+    /// Converts this object into a binary data.
+    func toBinaryData() -> BinaryData
+}
+
+extension UInt: BinaryDataConvertible { public func toBinaryData() -> BinaryData { return .Integer(UIntMax(self)) } }
+extension UInt8: BinaryDataConvertible { public func toBinaryData() -> BinaryData { return .Integer(UIntMax(self)) } }
+extension UInt16: BinaryDataConvertible { public func toBinaryData() -> BinaryData { return .Integer(UIntMax(self)) } }
+extension UInt32: BinaryDataConvertible { public func toBinaryData() -> BinaryData { return .Integer(UIntMax(self)) } }
+extension UInt64: BinaryDataConvertible { public func toBinaryData() -> BinaryData { return .Integer(UIntMax(self)) } }
+extension Int: BinaryDataConvertible { public func toBinaryData() -> BinaryData { return .Integer(UIntMax(bitPattern: IntMax(self))) } }
+extension Int8: BinaryDataConvertible { public func toBinaryData() -> BinaryData { return .Integer(UIntMax(bitPattern: IntMax(self))) } }
+extension Int16: BinaryDataConvertible { public func toBinaryData() -> BinaryData { return .Integer(UIntMax(bitPattern: IntMax(self))) } }
+extension Int32: BinaryDataConvertible { public func toBinaryData() -> BinaryData { return .Integer(UIntMax(bitPattern: IntMax(self))) } }
+extension Int64: BinaryDataConvertible { public func toBinaryData() -> BinaryData { return .Integer(UIntMax(bitPattern: IntMax(self))) } }
+
+extension dispatch_data_t {
+    public func toBinaryData() -> BinaryData {
+        return .Bytes(self)
+    }
+}
+
+extension String: BinaryDataConvertible {
+    public func toBinaryData() -> BinaryData {
+        return .Bytes(createData(Array(utf8)))
+    }
+}
+
+extension NSData: BinaryDataConvertible {
+    public func toBinaryData() -> BinaryData {
+        return .Bytes(dispatch_data_create(bytes, length, dispatch_get_main_queue(), retaining(self)))
+    }
+}
+
+extension SequenceType where Generator.Element: BinaryDataConvertible {
+    public func toBinaryData() -> BinaryData {
+        return .Seq(map { $0.toBinaryData() })
+    }
+}
+
+extension BinaryData: BinaryDataConvertible {
+    public func toBinaryData() -> BinaryData {
+        return self
+    }
+}
+
+#if !BINARY_SPEC_DISABLE_CUSTOM_OPERATOR
+
+prefix operator « {}
+postfix operator » {}
+
+/// A short-circuit to call `.toBinaryData()`: `«X» == X.toBinaryData()`.
+///
+/// On OS X, you may type "⌥\\" for `«` and "⇧⌥|" for `»`.
+public postfix func »<T: BinaryDataConvertible>(t: T) -> BinaryData { return t.toBinaryData() }
+public postfix func »<S: SequenceType where S.Generator.Element: BinaryDataConvertible>(s: S) -> BinaryData { return s.toBinaryData() }
+public postfix func »(d: dispatch_data_t) -> BinaryData { return d.toBinaryData() }
+
+/// A short-circuit to call `.toBinaryData()`: `«X» == X.toBinaryData()`.
+///
+/// On OS X, you may type "⌥\\" for `«` and "⇧⌥|" for `»`.
+public prefix func «(t: BinaryData) -> BinaryData { return t }
+
+#endif
+
 // MARK: - BinarySpec
 
 /// Type of a variable name.
