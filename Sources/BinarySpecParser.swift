@@ -27,6 +27,8 @@ private enum BinarySpecToken {
     case Equals // =
     case Star // *
     case Comma // ,
+    case Plus // +
+    case Minus // -
     case Endian(Int) // <, >
 }
 
@@ -100,6 +102,10 @@ private class BinarySpecTokenizer {
             token = .Endian(NS_BigEndian)
         case 0x2c: // ,
             token = .Comma
+        case 0x2b: // +
+            token = .Plus
+        case 0x2d: // -
+            token = .Minus
 
         case 0x30 ... 0x39: // 0 ~ 9
             let digit = UIntMax(c - 0x30)
@@ -163,6 +169,7 @@ internal class BinarySpecParser {
     private var nextIntegerTypeIsVariable = false
     private var nextCaseIsDefault = false
     private let variablePrefix: String
+    private var variableOffsetDirection = 0
 
     private func provideVariable() -> String {
         let index = variableNames.endIndex
@@ -234,7 +241,7 @@ internal class BinarySpecParser {
     private func parseToken(token: BinarySpecToken) {
         switch token {
         case let .Number(a):
-            precondition(!nextIntegerTypeIsVariable, "expected integer type after '%'")
+            precondition(!nextIntegerTypeIsVariable || variableOffsetDirection != 0, "expected integer type after '%'")
             currentNumber = a
 
         case let .IntegerType(a):
@@ -242,7 +249,17 @@ internal class BinarySpecParser {
             if nextIntegerTypeIsVariable {
                 nextIntegerTypeIsVariable = false
                 let variableName = provideVariable()
-                appendToSeq(.Variable(intSpec, variableName))
+                let offset: IntMax
+                switch variableOffsetDirection {
+                case 1:
+                    offset = IntMax(bitPattern: currentNumber)
+                case -1:
+                    offset = -IntMax(bitPattern: currentNumber)
+                default:
+                    offset = 0
+                }
+                appendToSeq(.Variable(intSpec, variableName, offset: offset))
+                variableOffsetDirection = 0
             } else {
                 let count = Int(consumeCurrentNumber())
                 let specs = Repeat(count: count, repeatedValue: BinarySpec.Integer(intSpec))
@@ -293,6 +310,12 @@ internal class BinarySpecParser {
         case .Comma:
             popToSwitch()
             states.append(State())
+
+        case .Plus:
+            variableOffsetDirection = 1
+
+        case .Minus:
+            variableOffsetDirection = -1
         }
     }
 

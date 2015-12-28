@@ -112,7 +112,6 @@ public func createData(array: [UInt8]) -> dispatch_data_t {
     }
 }
 
-
 /// Extends an array from some dispatch data.
 ///
 /// - Complexity:
@@ -306,9 +305,13 @@ public indirect enum BinarySpec: Equatable {
     /// Integer variable. The variable name should be used to define the length of some dynamic
     /// structures later. Decodes to `BinaryData.Integer`.
     ///
+    /// After reading the variable, an offset will be added to get the real value (e.g. if the data
+    /// contains `04 00 00 00` in little-endian, and the offset is 3, then the variable's value is
+    /// 4 + 3 = 7.
+    ///
     /// - Warning: 
     ///   Refering to a variable before it is defined will cause `fatalError`.
-    case Variable(IntSpec, VariableName)
+    case Variable(IntSpec, VariableName, offset: IntMax)
 
     /// Dynamic bytes. Uses the content of a variable as the length, then reads the corresponding
     /// number of bytes. Decodes to `BinaryData.Bytes`.
@@ -381,8 +384,8 @@ public func ==(left: BinarySpec, right: BinarySpec) -> Bool {
         return true
     case let (.Integer(a), .Integer(b)):
         return a == b
-    case let (.Variable(a, c), .Variable(b, d)):
-        return a == b && c == d
+    case let (.Variable(a, c, e), .Variable(b, d, f)):
+        return a == b && c == d && e == f
     case let (.Bytes(a), .Bytes(b)):
         return a == b
     case let (.Seq(a), .Seq(b)):
@@ -555,9 +558,9 @@ private enum BinaryParserNextAction {
                 let integer = data.toUIntMax(spec)
                 return pushState(.Integer(integer))
 
-            case let .Prepared(.Variable(spec, name)):
+            case let .Prepared(.Variable(spec, name, offset)):
                 let data = try read(spec.length)
-                let integer = data.toUIntMax(spec)
+                let integer = data.toUIntMax(spec) &+ UIntMax(bitPattern: offset)
                 variables[name] = integer
                 return pushState(.Integer(integer))
 
@@ -671,9 +674,10 @@ private enum BinaryParserNextAction {
         case let (.Integer(spec), .Integer(val)):
             return spec.encode(val)
 
-        case let (.Variable(spec, name), .Integer(val)):
-            variables[name] = val
-            return spec.encode(val)
+        case let (.Variable(spec, name, offset), .Integer(val)):
+            let adjusted = val &- UIntMax(bitPattern: offset)
+            variables[name] = adjusted
+            return spec.encode(adjusted)
 
         case let (.Bytes(name), .Bytes(q)):
             let expectedCount = Int(variables[name]!)

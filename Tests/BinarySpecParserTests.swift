@@ -56,18 +56,18 @@ class BinarySpecParserTests: XCTestCase {
 
     func testVariable() {
         XCTAssertEqual(BinarySpec(parse: "%Is"), BinarySpec.Seq([
-            .Variable(.UInt32LE, "0"),
+            .Variable(.UInt32LE, "0", offset: 0),
             .Bytes("0")
             ]))
         XCTAssertEqual(BinarySpec(parse: "%I%Qss"), BinarySpec.Seq([
-            .Variable(.UInt32LE, "0"),
-            .Variable(.UInt64LE, "1"),
+            .Variable(.UInt32LE, "0", offset: 0),
+            .Variable(.UInt64LE, "1", offset: 0),
             .Bytes("0"),
             .Bytes("1")
             ]))
         XCTAssertEqual(BinarySpec(parse: "%I%Qss", variablePrefix: "hello_"), BinarySpec.Seq([
-            .Variable(.UInt32LE, "hello_0"),
-            .Variable(.UInt64LE, "hello_1"),
+            .Variable(.UInt32LE, "hello_0", offset: 0),
+            .Variable(.UInt64LE, "hello_1", offset: 0),
             .Bytes("hello_0"),
             .Bytes("hello_1")
             ]))
@@ -75,12 +75,12 @@ class BinarySpecParserTests: XCTestCase {
 
     func testUntil() {
         XCTAssertEqual(BinarySpec(parse: "%T(I)"), BinarySpec.Seq([
-            .Variable(.UInt24LE, "0"),
+            .Variable(.UInt24LE, "0", offset: 0),
             .Until("0", .Integer(.UInt32LE))
             ]))
 
         XCTAssertEqual(BinarySpec(parse: "%BB(BI)"), BinarySpec.Seq([
-            .Variable(.Byte, "0"),
+            .Variable(.Byte, "0", offset: 0),
             .Integer(.Byte),
             .Until("0", .Seq([
                 .Integer(.Byte),
@@ -91,7 +91,7 @@ class BinarySpecParserTests: XCTestCase {
 
     func testSwitch() {
         XCTAssertEqual(BinarySpec(parse: "%I{1=T,2=B,0xa=QQ,*=H}"), BinarySpec.Seq([
-            .Variable(.UInt32LE, "0"),
+            .Variable(.UInt32LE, "0", offset: 0),
             .Switch(selector: "0", cases: [
                 1: .Integer(.UInt24LE),
                 2: .Integer(.Byte),
@@ -105,7 +105,7 @@ class BinarySpecParserTests: XCTestCase {
             .Integer(.UInt32LE),
             .Integer(.UInt32LE),
             .Integer(.UInt32LE),
-            .Variable(.UInt32LE, "0"),
+            .Variable(.UInt32LE, "0", offset: 0),
             .Integer(.UInt32LE),
             .Integer(.UInt32LE),
             .Bytes("0")
@@ -114,11 +114,18 @@ class BinarySpecParserTests: XCTestCase {
 
     func testSampleHTTP2() {
         XCTAssertEqual(BinarySpec(parse: ">%TBBIs"), BinarySpec.Seq([
-            .Variable(.UInt24BE, "0"),
+            .Variable(.UInt24BE, "0", offset: 0),
             .Integer(.Byte),
             .Integer(.Byte),
             .Integer(.UInt32BE),
             .Bytes("0"),
+            ]))
+    }
+
+    func testVariableOffset() {
+        XCTAssertEqual(BinarySpec(parse: ">%+1I%-0x13I"), BinarySpec.Seq([
+            .Variable(.UInt32BE, "0", offset: 1),
+            .Variable(.UInt32BE, "1", offset: -0x13),
             ]))
     }
 }

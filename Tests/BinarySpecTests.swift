@@ -163,7 +163,7 @@ class BinaryParserTest: XCTestCase {
     }
 
     func testBytes() {
-        let parser = BinaryParser(.Seq([.Variable(.UInt16LE, "bytes"), .Bytes("bytes")]))
+        let parser = BinaryParser(.Seq([.Variable(.UInt16LE, "bytes", offset: 0), .Bytes("bytes")]))
         parser.supply([0x10, 0, 1, 2, 3, 4, 5])
 
         let result1 = parser.next()
@@ -181,9 +181,9 @@ class BinaryParserTest: XCTestCase {
 
     func testIncompleteSeq() {
         let parser = BinaryParser(.Seq([
-            .Variable(.UInt16BE, "first"),
+            .Variable(.UInt16BE, "first", offset: 0),
             .Bytes("first"),
-            .Variable(.UInt16BE, "second"),
+            .Variable(.UInt16BE, "second", offset: 0),
             .Bytes("second"),
             ]))
         parser.supply([0, 5, 1, 2])
@@ -207,7 +207,7 @@ class BinaryParserTest: XCTestCase {
 
     func testUntil() {
         let parser = BinaryParser(.Seq([
-            .Variable(.Byte, "length"),
+            .Variable(.Byte, "length", offset: 0),
             .Until("length", .Integer(.UInt32LE))
             ]))
 
@@ -230,7 +230,7 @@ class BinaryParserTest: XCTestCase {
 
     func testUntilComplete() {
         let parser = BinaryParser(.Seq([
-            .Variable(.Byte, "length"),
+            .Variable(.Byte, "length", offset: 0),
             .Until("length", .Integer(.UInt32LE))
             ]))
         parser.supply([4, 1,2,3,4])
@@ -240,7 +240,7 @@ class BinaryParserTest: XCTestCase {
 
     func testUntilEmpty() {
         let parser = BinaryParser(.Seq([
-            .Variable(.Byte, "length"),
+            .Variable(.Byte, "length", offset: 0),
             .Until("length", .Integer(.UInt32LE))
             ]))
         parser.supply([0])
@@ -250,7 +250,7 @@ class BinaryParserTest: XCTestCase {
 
     func testSwitch() {
         let spec = BinarySpec.Seq([
-            .Variable(.Byte, "selector"),
+            .Variable(.Byte, "selector", offset: 0),
             .Switch(selector: "selector", cases: [
                 0: .Integer(.Byte),
                 1: .Integer(.UInt16BE),
@@ -282,7 +282,7 @@ class BinaryParserTest: XCTestCase {
     func testSwitchStop() {
         let switchSpec = BinarySpec.Switch(selector: "selector", cases: [0: .Integer(.Byte)], `default`: .Stop)
 
-        let parser = BinaryParser(.Seq([.Variable(.Byte, "selector"), switchSpec]))
+        let parser = BinaryParser(.Seq([.Variable(.Byte, "selector", offset: 0), switchSpec]))
         parser.supply([0x99, 0xcc])
 
         let result = parser.next()
@@ -306,10 +306,10 @@ class BinaryParserTest: XCTestCase {
 
     func testStopInUntil() {
         let parser = BinaryParser(.Seq([
-            .Variable(.Byte, "length"),
+            .Variable(.Byte, "length", offset: 0),
             .Integer(.Byte),
             .Until("length", .Seq([
-                .Variable(.Byte, "selector"),
+                .Variable(.Byte, "selector", offset: 0),
                 .Switch(selector: "selector", cases: [7: .Integer(.Byte)], `default`: .Stop)
                 ])),
             .Integer(.Byte),
@@ -354,6 +354,23 @@ class BinaryParserTest: XCTestCase {
             .Integer(0x88776655),
             ]))
     }
+
+    func testVariableOffset() {
+        let parser = BinaryParser(.Seq([
+            .Variable(.UInt32LE, "x", offset: 0x99999999),
+            .Variable(.UInt32LE, "y", offset: -0x99999999),
+            .Variable(.UInt32LE, "z", offset: -0x99999999),
+            ]))
+
+        parser.supply([0xff, 0xee, 0xdd, 0xcc, 0xff, 0xee, 0xdd, 0xcc, 0, 0, 0, 0])
+
+        let result = parser.next()
+        XCTAssertEqual(result, success: .Seq([
+            .Integer(0x1_66778898),
+            .Integer(0x33445566),
+            .Integer(UIntMax(bitPattern: -0x99999999)),
+            ]))
+    }
 }
 
 class BinaryEncoderTest: XCTestCase {
@@ -392,7 +409,7 @@ class BinaryEncoderTest: XCTestCase {
             ])
 
         let spec = BinarySpec.Seq([
-            .Variable(.UInt16BE, "length"),
+            .Variable(.UInt16BE, "length", offset: 0),
             .Bytes("length")
             ])
 
@@ -402,5 +419,24 @@ class BinaryEncoderTest: XCTestCase {
 
         let expected = [UInt8]([0, 0x30] + bytes)
         XCTAssertEqual(result, expected)
+    }
+
+    func testVariableOffset() {
+        let data = BinaryData.Seq([
+            .Integer(0x1_66778898),
+            .Integer(0x33445566),
+            .Integer(UIntMax(bitPattern: -0x99999999)),
+            ])
+
+        let spec = BinarySpec.Seq([
+            .Variable(.UInt32LE, "x", offset: 0x99999999),
+            .Variable(.UInt32LE, "y", offset: -0x99999999),
+            .Variable(.UInt32LE, "z", offset: -0x99999999),
+            ])
+
+        let encoder = BinaryEncoder(spec)
+        let result = encoder.encode(data)
+
+        XCTAssertEqual(result, [0xff, 0xee, 0xdd, 0xcc, 0xff, 0xee, 0xdd, 0xcc, 0, 0, 0, 0])
     }
 }
