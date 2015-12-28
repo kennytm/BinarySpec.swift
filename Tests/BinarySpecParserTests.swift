@@ -128,4 +128,13 @@ class BinarySpecParserTests: XCTestCase {
             .Variable(.UInt32BE, "1", offset: -0x13),
             ]))
     }
+
+    func testVariableOverride() {
+        XCTAssertEqual(BinarySpec(parse: ">%I%H1$s0$s", variablePrefix: "~"), BinarySpec.Seq([
+            .Variable(.UInt32BE, "~0", offset: 0),
+            .Variable(.UInt16BE, "~1", offset: 0),
+            .Bytes("~1"),
+            .Bytes("~0"),
+            ]))
+    }
 }

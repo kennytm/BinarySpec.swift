@@ -30,6 +30,7 @@ private enum BinarySpecToken {
     case Plus // +
     case Minus // -
     case Endian(Int) // <, >
+    case Dollar // $
 }
 
 private class BinarySpecTokenizer {
@@ -106,6 +107,8 @@ private class BinarySpecTokenizer {
             token = .Plus
         case 0x2d: // -
             token = .Minus
+        case 0x24: // $
+            token = .Dollar
 
         case 0x30 ... 0x39: // 0 ~ 9
             let digit = UIntMax(c - 0x30)
@@ -162,7 +165,7 @@ internal class BinarySpecParser {
         var curCase: UIntMax? = nil
     }
 
-    private var variableNames = 0 ..< 0
+    private var variableNames: Range<UIntMax> = 0 ..< 0
     private var endian = NS_LittleEndian
     private var states = [State()]
     private var currentNumber: UIntMax = 1
@@ -170,16 +173,23 @@ internal class BinarySpecParser {
     private var nextCaseIsDefault = false
     private let variablePrefix: String
     private var variableOffsetDirection = 0
+    private var overriddenVariableName: UIntMax? = nil
 
     private func provideVariable() -> String {
         let index = variableNames.endIndex
-        variableNames = variableNames.startIndex ... variableNames.endIndex
+        variableNames = variableNames.startIndex ... index
         return "\(variablePrefix)\(index)"
     }
 
     private func consumeVariable() -> String {
-        let index = variableNames.startIndex
-        variableNames = variableNames.startIndex.successor() ..< variableNames.endIndex
+        let index: UIntMax
+        if let overridden = overriddenVariableName {
+            overriddenVariableName = nil
+            index = overridden
+        } else {
+            index = variableNames.startIndex
+            variableNames = index.successor() ..< variableNames.endIndex
+        }
         return "\(variablePrefix)\(index)"
     }
 
@@ -316,6 +326,9 @@ internal class BinarySpecParser {
 
         case .Minus:
             variableOffsetDirection = -1
+
+        case .Dollar:
+            overriddenVariableName = consumeCurrentNumber()
         }
     }
 

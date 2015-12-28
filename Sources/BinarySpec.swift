@@ -359,9 +359,16 @@ public indirect enum BinarySpec: Equatable {
     /// <tr><td><var>6</var><var>Q</var><td>Repeats the integer <var>Q</var> for <var>6</var> times.
     /// <tr><td><var>24</var>x<td>Skips <var>24</var> bytes
     /// <tr><td>%<var>Q</var><td>Defines a variable for integer type <var>Q</var>
+    /// <tr><td>%<var>-2Q</var><td>Defines a variable for integer type <var>Q</var>, with an offset 
+    /// of <var>-2</var>.
     /// <tr><td>s<td>Reads a <tt>.Bytes</tt>. The first unused variable will be used for the length.
-    /// <tr><td>(…)<td>Reads an <tt>.Until</tt>
-    /// <tr><td>{ 0xff=…, 0x100=…, *=… }<td>Reads a <tt>.Switch</tt>
+    /// <tr><td>(…)<td>Reads an <tt>.Until</tt>. The first unused variable will be used for the
+    /// length.
+    /// <tr><td>{ 0xff=…, 0x100=…, *=… }<td>Reads a <tt>.Switch</tt>. The first unused variable will
+    /// be used for the length.
+    /// <tr><td>23$s<td>Reads a <tt>.Bytes</tt> using the variable #<var>23</var>. Variables are
+    /// indiced from left to right lexically, starting from 0. The same "N$" syntax can be used for
+    /// <tt>.Until</tt> and <tt>.Switch</tt>.
     /// </table>
     ///
     /// For instance, the ADB packet can be represented as
