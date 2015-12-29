@@ -215,7 +215,7 @@ extension dispatch_data_t {
 // MARK: - BinaryData
 
 /// The parsed binary data.
-public indirect enum BinaryData: Equatable {
+public indirect enum BinaryData: Equatable, CustomStringConvertible {
     /// No data.
     case Empty
 
@@ -264,6 +264,21 @@ public indirect enum BinaryData: Equatable {
     public var seq: [BinaryData] {
         guard case let .Seq(a) = self else { fatalError() }
         return a
+    }
+
+    public var description: String {
+        switch self {
+        case .Empty:
+            return ".Empty"
+        case let .Stop(spec, value):
+            return ".Stop(\(spec), \(value))"
+        case let .Integer(a):
+            return "«\(a)»"
+        case let .Bytes(a):
+            return "«\(a)»"
+        case let .Seq(a):
+            return "«[\(a.lazy.map { $0.description }.joinWithSeparator(", "))]»"
+        }
     }
 }
 
