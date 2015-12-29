@@ -139,7 +139,7 @@ extension SequenceType where Generator.Element: dispatch_data_t {
 private let DISPATCH_DATA_DESTRUCTOR_DEFAULT: dispatch_block_t? = nil
 
 /** Specification for an integer type. This structure defines how an integer is encoded in binary. */
-public struct IntSpec: Equatable {
+public struct IntSpec: Equatable, CustomStringConvertible {
     /** Length of integer. Normally should be 1, 2, 4 or 8. */
     public let length: Int
 
@@ -180,6 +180,20 @@ public struct IntSpec: Equatable {
         return withUnsafePointer(&prepared) {
             return dispatch_data_create(UnsafePointer($0), length, dispatch_get_main_queue(), DISPATCH_DATA_DESTRUCTOR_DEFAULT)
         }
+    }
+
+    public var description: String {
+        let letter: String
+        switch length {
+        case 1: letter = "B"
+        case 2: letter = "H"
+        case 3: letter = "T"
+        case 4: letter = "I"
+        case 8: letter = "Q"
+        default: letter = "/*\(length*8)-bit*/"
+        }
+        let order = endian == NS_BigEndian ? ">" : "<"
+        return order + letter
     }
 }
 
@@ -378,7 +392,7 @@ public prefix func «(t: BinaryData) -> BinaryData { return t }
 public typealias VariableName = String
 
 /// A specification of how a raw binary data stream should be parsed.
-public indirect enum BinarySpec: Equatable {
+public indirect enum BinarySpec: Equatable, CustomStringConvertible {
     /// Reads _n_ bytes and ignore the result. Decodes to `BinaryData.Empty`. When encoded, this
     /// field will generate zeros.
     case Skip(Int)
@@ -468,6 +482,35 @@ public indirect enum BinarySpec: Equatable {
         let parser = BinarySpecParser(variablePrefix: variablePrefix)
         parser.parse(string)
         self = parser.spec
+    }
+
+    public var description: String {
+        switch self {
+        case let .Skip(a):
+            return "\(a)x"
+        case .Stop:
+            return "/*Stop*/"
+        case let .Integer(a):
+            return a.description
+        case let .Variable(a, _, offset):
+            if offset < 0 {
+                return "%\(offset)\(a)"
+            } else if offset > 0 {
+                return "%+\(offset)\(a)"
+            } else {
+                return "%\(a)"
+            }
+        case let .Bytes(a):
+            return "\(a)$s"
+        case let .Seq(a):
+            return "[\(a.lazy.map { $0.description }.joinWithSeparator(" "))]"
+        case let .Until(a, b):
+            return "\(a)$(\(b))"
+        case let .Repeat(a, b):
+            return "\(a)$*(\(b))"
+        case let .Switch(sel, cases, def):
+            return "\(sel)${\(cases.lazy.map { "\($0)=\($1)" }.joinWithSeparator(", ")), *=\(def)}"
+        }
     }
 }
 
