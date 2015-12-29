@@ -342,27 +342,25 @@ public final class BinaryWriter {
         guard totalLength > 0 else { return }
 
         let fd = dispatch_fd_t(dispatch_source_get_handle(source))
-        var totalBytesWritten = 0
+        let bufferSize = min(Int(dispatch_source_get_data(source)), totalLength)
 
-        dispatch_data_apply(remainingData) { _, _, buffer, size in
-            let bytesWritten = Darwin.write(fd, buffer, size)
+        var dataToWrite = dispatch_data_create_subrange(remainingData, 0, bufferSize)!
+        let bytesToWrite = linearize(&dataToWrite)
+        let totalBytesWritten = Darwin.write(fd, bytesToWrite.baseAddress, bytesToWrite.count)
 
-            if bytesWritten >= 0 {
-                totalBytesWritten += bytesWritten
-            } else {
-                switch errno {
-                case EAGAIN, EWOULDBLOCK, EINPROGRESS:
-                    break
-                case let e:
-                    self.lastError = NSError(domain: NSPOSIXErrorDomain, code: Int(e), userInfo: nil)
-                }
+        let remainingLength: Int
+        if totalBytesWritten >= 0 {
+            remainingLength = totalLength - totalBytesWritten
+            remainingData = dispatch_data_create_subrange(remainingData, totalBytesWritten, remainingLength)
+        } else {
+            remainingLength = totalLength
+            switch errno {
+            case EAGAIN, EWOULDBLOCK, EINPROGRESS:
+                break
+            case let e:
+                lastError = NSError(domain: NSPOSIXErrorDomain, code: Int(e), userInfo: nil)
             }
-
-            return bytesWritten > 0
         }
-
-        let remainingLength = totalLength - totalBytesWritten
-        remainingData = dispatch_data_create_subrange(remainingData, totalBytesWritten, remainingLength)
 
         if remainingLength <= 0 {
             suspendCount += 1
