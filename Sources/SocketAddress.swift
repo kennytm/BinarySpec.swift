@@ -16,6 +16,8 @@ License.
 
 // MARK: IPAddress
 
+import Foundation
+
 /// Represents an IP address
 public enum IPAddress: Hashable, ForwardIndexType, CustomStringConvertible {
     /// An IPv4 address.

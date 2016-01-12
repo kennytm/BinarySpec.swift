@@ -15,6 +15,7 @@ License.
 */
 
 import Dispatch
+import Foundation
 
 // MARK: - Read stream
 

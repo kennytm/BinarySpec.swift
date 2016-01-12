@@ -14,6 +14,8 @@ License.
 
 */
 
+import Foundation
+
 private enum BinarySpecToken {
     case Number(UIntMax)
     case IntegerType(Int) // B, H, T, I, Q
