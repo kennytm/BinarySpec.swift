@@ -396,28 +396,31 @@ public final class BinaryWriter {
         resumeSource()
     }
 
+    private func write(callback: (NSError? -> ())?, data: () -> dispatch_data_t) {
+        dispatch_async(writeQueue) {
+            self.asyncWrite(data(), callback: callback)
+        }
+    }
+
     /// Asynchronously writes data to the file. The data will be queued until the file is ready to 
     /// accept more data.
     public func write(data: dispatch_data_t, callback: (NSError? -> ())? = nil) {
-        dispatch_async(writeQueue) {
-            self.asyncWrite(data, callback: callback)
-        }
+        write(callback) { data }
     }
 
     /// Asynchronously writes data to the file. If you call this method, the encoder argument in the
     /// constructor must not be nil.
     public func write(data: BinaryData, callback: (NSError? -> ())? = nil) {
-        write(encoder!.encode(data), callback: callback)
+        write(callback) { self.encoder!.encode(data) }
     }
 
-    /// Synchronously writes data to the file.
-    public func syncWrite(data: dispatch_data_t, timeout: dispatch_time_t = DISPATCH_TIME_FOREVER) -> NSError? {
+    private func syncWrite(timeout: dispatch_time_t, data: () -> dispatch_data_t) -> NSError? {
         let semaphore = dispatch_semaphore_create(0)
 
         var result: NSError? = nil
 
         dispatch_sync(writeQueue) {
-            self.asyncWrite(data) {
+            self.asyncWrite(data()) {
                 result = $0
                 dispatch_semaphore_signal(semaphore)
             }
@@ -426,14 +429,19 @@ public final class BinaryWriter {
         guard dispatch_semaphore_wait(semaphore, timeout) == 0 else {
             return NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT), userInfo: nil)
         }
-
+        
         return result
+    }
+
+    /// Synchronously writes data to the file.
+    public func syncWrite(data: dispatch_data_t, timeout: dispatch_time_t = DISPATCH_TIME_FOREVER) -> NSError? {
+        return syncWrite(timeout) { data }
     }
 
     /// Synchronously writes data to the file. If you call this method, the encoder argument in the
     /// constructor must not be nil.
     public func syncWrite(data: BinaryData, timeout: dispatch_time_t = DISPATCH_TIME_FOREVER) -> NSError? {
-        return syncWrite(encoder!.encode(data), timeout: timeout)
+        return syncWrite(timeout) { self.encoder!.encode(data) }
     }
 }
 
