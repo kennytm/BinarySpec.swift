@@ -362,6 +362,13 @@ extension SequenceType where Generator.Element: BinaryDataConvertible {
     }
 }
 
+extension SequenceType where Generator.Element: dispatch_data_t {
+    public func toBinaryData() -> BinaryData {
+        return .Seq(map { .Bytes($0) })
+    }
+}
+
+
 extension BinaryData: BinaryDataConvertible {
     public func toBinaryData() -> BinaryData {
         return self
@@ -378,6 +385,7 @@ postfix operator » {}
 /// On OS X, you may type "⌥\\" for `«` and "⇧⌥|" for `»`.
 public postfix func »<T: BinaryDataConvertible>(t: T) -> BinaryData { return t.toBinaryData() }
 public postfix func »<S: SequenceType where S.Generator.Element: BinaryDataConvertible>(s: S) -> BinaryData { return s.toBinaryData() }
+public postfix func »<S: SequenceType where S.Generator.Element: dispatch_data_t>(s: S) -> BinaryData { return s.toBinaryData() }
 public postfix func »(d: dispatch_data_t) -> BinaryData { return d.toBinaryData() }
 
 /// A short-circuit to call `.toBinaryData()`: `«X» == X.toBinaryData()`.
