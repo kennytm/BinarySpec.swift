@@ -371,6 +371,58 @@ class BinaryParserTest: XCTestCase {
             .Integer(UIntMax(bitPattern: -0x99999999)),
             ]))
     }
+
+    func testUnlimitedBytes() {
+        let parser = BinaryParser(.Seq([
+            .Integer(.UInt16LE),
+            .Bytes(nil),
+            ]))
+
+        parser.supply([0x11, 0x22, 0x33, 0x44, 0x55, 0x76, 0x67, 0x88, 0x99])
+        let result = parser.next()
+        XCTAssertEqual(result, success: .Seq([
+            .Integer(0x2211),
+            .Bytes(createData([0x33, 0x44, 0x55, 0x76, 0x67, 0x88, 0x99]))
+            ]))
+    }
+
+    func testUnlimitedUntil() {
+        let parser = BinaryParser(.Seq([
+            .Integer(.UInt16LE),
+            .Until(nil, .Integer(.UInt32LE))
+            ]))
+
+        parser.supply([0x12, 0x33, 0xfa, 0x41, 0xbb, 0xa0, 0x44, 0x10, 0x7c, 0xf1, 0xa2])
+        let result = parser.next()
+        XCTAssertEqual(result, success: .Seq([
+            .Integer(0x3312),
+            .Seq([.Integer(0xa0bb41fa), .Integer(0xf17c1044)])
+            ]))
+    }
+
+    func testNestedUnlimitedUntil() {
+        let parser = BinaryParser(.Seq([
+            .Variable(.Byte, "length", offset: 0),
+            .Until("length", .Seq([
+                .Integer(.UInt32LE),
+                .Until(nil, .Integer(.Byte))
+                ])),
+            .Integer(.UInt32LE),
+            ]))
+
+        parser.supply([9, 0x11, 0x22, 0x33, 0x44, 0x90, 0x91, 0x92, 0x93, 0x94, 0x55, 0x66, 0x77, 0x88])
+        let result = parser.next()
+        XCTAssertEqual(result, success: .Seq([
+            .Integer(9),
+            .Seq([
+                .Seq([
+                    .Integer(0x44332211),
+                    .Seq([.Integer(0x90), .Integer(0x91), .Integer(0x92), .Integer(0x93), .Integer(0x94)])
+                    ])
+                ]),
+            .Integer(0x88776655),
+            ]))
+    }
 }
 
 class BinaryEncoderTest: XCTestCase {
@@ -465,8 +517,6 @@ class BinaryEncoderTest: XCTestCase {
         let encoder = BinaryEncoder(spec)
         let result = encoder.encode(data)
 
-        print(result)
-
         XCTAssertEqual(result, [
             11, 0, 0, 0,
             2, 0, 0, 0,
@@ -474,4 +524,39 @@ class BinaryEncoderTest: XCTestCase {
             0x33, 0x11, 0x11, 0x56, 0x1a, 0x93, 0xbb, 0x19, 0x1c, 0x55, 0x23, 0xb1,
             ])
     }
+
+    func testUnlimitedBytes() {
+        let spec = BinarySpec.Seq([
+            .Integer(.UInt16LE),
+            .Bytes(nil),
+            ])
+
+        let data = BinaryData.Seq([
+            .Integer(0x2211),
+            .Bytes(createData([0x33, 0x44, 0x55, 0x76, 0x67, 0x88, 0x99])),
+            ])
+
+        let encoder = BinaryEncoder(spec)
+        let result = encoder.encode(data)
+
+        XCTAssertEqual(result, [0x11, 0x22, 0x33, 0x44, 0x55, 0x76, 0x67, 0x88, 0x99])
+    }
+
+    func testUnlimitedUntil() {
+        let spec = BinarySpec.Seq([
+            .Integer(.UInt16LE),
+            .Until(nil, .Integer(.UInt32LE))
+            ])
+
+        let data = BinaryData.Seq([
+            .Integer(0x3312),
+            .Seq([.Integer(0xa0bb41fa), .Integer(0xf17c1044)]),
+            ])
+
+        let encoder = BinaryEncoder(spec)
+        let result = encoder.encode(data)
+
+        XCTAssertEqual(result, [0x12, 0x33, 0xfa, 0x41, 0xbb, 0xa0, 0x44, 0x10, 0x7c, 0xf1])
+    }
+
 }

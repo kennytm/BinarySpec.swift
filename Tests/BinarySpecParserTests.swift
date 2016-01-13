@@ -137,6 +137,19 @@ class BinarySpecParserTests: XCTestCase {
             .Bytes("~0"),
             ]))
     }
+
+    func testUnlimitedLength() {
+        XCTAssertEqual(BinarySpec(parse: "*s"), BinarySpec.Bytes(nil))
+        XCTAssertEqual(BinarySpec(parse: ">*(I)"), BinarySpec.Until(nil, .Integer(.UInt32BE)))
+
+        XCTAssertEqual(BinarySpec(parse: ">%Is*s%Is"), BinarySpec.Seq([
+            .Variable(.UInt32BE, "0", offset: 0),
+            .Bytes("0"),
+            .Bytes(nil),
+            .Variable(.UInt32BE, "1", offset: 0),
+            .Bytes("1"),
+            ]))
+    }
 }
 
 class BinaryDataConvertibleTests: XCTestCase {

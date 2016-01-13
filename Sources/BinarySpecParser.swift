@@ -172,7 +172,7 @@ internal class BinarySpecParser {
     private var states = [State()]
     private var currentNumber: UIntMax = 1
     private var nextIntegerTypeIsVariable = false
-    private var nextCaseIsDefault = false
+    private var previousTokenIsStar = false
     private let variablePrefix: String
     private var variableOffsetDirection = 0
     private var overriddenVariableName: UIntMax? = nil
@@ -183,7 +183,7 @@ internal class BinarySpecParser {
         return "\(variablePrefix)\(index)"
     }
 
-    private func consumeVariable() -> String {
+    private func consumeVariable() -> VariableName {
         let index: UIntMax
         if let overridden = overriddenVariableName {
             overriddenVariableName = nil
@@ -193,6 +193,15 @@ internal class BinarySpecParser {
             variableNames = index.successor() ..< variableNames.endIndex
         }
         return "\(variablePrefix)\(index)"
+    }
+
+    private func consumeLengthVariable() -> VariableName? {
+        if previousTokenIsStar {
+            previousTokenIsStar = false
+            return nil
+        } else {
+            return consumeVariable()
+        }
     }
 
     private func consumeCurrentNumber() -> UIntMax {
@@ -283,7 +292,7 @@ internal class BinarySpecParser {
             appendToSeq(.Skip(count))
 
         case .Bytes:
-            let variableName = consumeVariable()
+            let variableName = consumeLengthVariable()
             appendToSeq(.Bytes(variableName))
 
         case .Variable:
@@ -294,7 +303,7 @@ internal class BinarySpecParser {
             endian = a
 
         case .UntilStart:
-            let variableName = consumeVariable()
+            let variableName = consumeLengthVariable()
             appendToSeq(.Until(variableName, .Stop))
             states.append(State())
 
@@ -313,11 +322,11 @@ internal class BinarySpecParser {
             popToSwitch()
 
         case .Equals:
-            states[states.endIndex.predecessor()].curCase = nextCaseIsDefault ? nil : consumeCurrentNumber()
-            nextCaseIsDefault = false
+            states[states.endIndex.predecessor()].curCase = previousTokenIsStar ? nil : consumeCurrentNumber()
+            previousTokenIsStar = false
 
         case .Star:
-            nextCaseIsDefault = true
+            previousTokenIsStar = true
 
         case .Comma:
             popToSwitch()

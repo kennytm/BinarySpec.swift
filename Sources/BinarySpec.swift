@@ -417,15 +417,17 @@ public indirect enum BinarySpec: Equatable, CustomStringConvertible {
     case Variable(IntSpec, VariableName, offset: IntMax)
 
     /// Dynamic bytes. Uses the content of a variable as the length, then reads the corresponding
-    /// number of bytes. Decodes to `BinaryData.Bytes`.
-    case Bytes(VariableName)
+    /// number of bytes. Consumes the entire stream if the variable name is nil. Decodes to 
+    /// `BinaryData.Bytes`.
+    case Bytes(VariableName?)
 
     /// Sequence of sub-specifications. Decodes to `BinaryData.Seq`.
     case Seq([BinarySpec])
 
     /// Repeated data with a given length. Uses the content of a variable as the length of data,
-    /// then repeats the sub-specification until the length runs out. Decodes to `BinaryData.Seq`.
-    case Until(VariableName, BinarySpec)
+    /// then repeats the sub-specification until the length runs out. Consumes the entire stream if
+    /// the variable name is nil.  Decodes to `BinaryData.Seq`.
+    case Until(VariableName?, BinarySpec)
 
     /// Repeated data with a given count. Then repeats the sub-specification exactly *n* times, 
     /// where *n* is given by the variable. Decodes to `BinaryData.Seq`.
@@ -460,8 +462,10 @@ public indirect enum BinarySpec: Equatable, CustomStringConvertible {
     /// <tr><td>%<var>-2Q</var><td>Defines a variable for integer type <var>Q</var>, with an offset 
     /// of <var>-2</var>.
     /// <tr><td>s<td>Reads a <tt>.Bytes</tt>. The first unused variable will be used for the length.
+    /// <tr><td>*s<td>Reads a <tt>.Bytes</tt> until all currently available data are consumed.
     /// <tr><td>(…)<td>Reads an <tt>.Until</tt>. The first unused variable will be used for the
     /// length.
+    /// <tr><td>*(…)<td>Reads an <tt>.Until</tt> until all currently available data are consumed.
     /// <tr><td>{ 0xff=…, 0x100=…, *=… }<td>Reads a <tt>.Switch</tt>. The first unused variable will
     /// be used for the length.
     /// <tr><td>23$s<td>Reads a <tt>.Bytes</tt> using the variable #<var>23</var>. Variables are
@@ -704,7 +708,7 @@ private enum BinaryParserNextAction {
                 return pushState(.Integer(integer))
 
             case let .Prepared(.Bytes(name)):
-                let length = Int(variables[name]!)
+                let length = lengthVariable(name)
                 let data = try read(length)
                 return pushState(.Bytes(data))
 
@@ -755,7 +759,7 @@ private enum BinaryParserNextAction {
                 }
 
             case let .Prepared(.Until(name, spec)):
-                let length = Int(variables[name]!)
+                let length = lengthVariable(name)
                 let data = try read(length)
                 let subparser = BinaryParser(spec)
                 subparser.supply(data)
@@ -787,6 +791,14 @@ private enum BinaryParserNextAction {
         let (prefix, suffix) = try data.splitAt(n)
         data = suffix
         return prefix
+    }
+
+    private func lengthVariable(name: VariableName?) -> Int {
+        if let name = name {
+            return Int(variables[name]!)
+        } else {
+            return data.count
+        }
     }
 }
 
@@ -854,13 +866,15 @@ public let autoCount: UIntMax = ~0x3fff_ffff
             encoded += spec.encode(info.adjusted)
 
         case let (.Bytes(name), .Bytes(q)):
-            let info = variables[name]!
-            let expectedCount = Int(truncatingBitPattern: info.value)
-            if expectedCount < 0 {
-                info.value = UIntMax(q.count)
-                replaceVariable(&encoded, variable: info)
-            } else if expectedCount != q.count {
-                fatalError("Expecting to encode \(expectedCount) bytes, but the provided data is \(q.count) bytes long")
+            if let name = name {
+                let info = variables[name]!
+                let expectedCount = Int(truncatingBitPattern: info.value)
+                if expectedCount < 0 {
+                    info.value = UIntMax(q.count)
+                    replaceVariable(&encoded, variable: info)
+                } else if expectedCount != q.count {
+                    fatalError("Expecting to encode \(expectedCount) bytes, but the provided data is \(q.count) bytes long")
+                }
             }
             encoded += q
 
@@ -870,17 +884,19 @@ public let autoCount: UIntMax = ~0x3fff_ffff
             }
 
         case let (.Until(name, subspec), .Seq(datas)):
-            let info = variables[name]!
             var subencoded = dispatch_data_empty
             for subdata in datas {
                 encodeRecursively(&subencoded, spec: subspec, data: subdata)
             }
-            let length = Int(truncatingBitPattern: info.value)
-            if length < 0 {
-                info.value = UIntMax(subencoded.count)
-                replaceVariable(&encoded, variable: info)
-            } else {
-                subencoded = subencoded.resized(length)
+            if let name = name {
+                let info = variables[name]!
+                let length = Int(truncatingBitPattern: info.value)
+                if length < 0 {
+                    info.value = UIntMax(subencoded.count)
+                    replaceVariable(&encoded, variable: info)
+                } else {
+                    subencoded = subencoded.resized(length)
+                }
             }
             encoded += subencoded
 
