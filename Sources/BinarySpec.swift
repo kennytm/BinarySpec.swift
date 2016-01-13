@@ -601,13 +601,16 @@ private enum BinaryParserNextAction {
 /// provided BinarySpec.
 @objc public class BinaryParser: NSObject {
     private let initialSpec: BinarySpec
+    private let initialVariables: [VariableName: UIntMax]
     private var incompleteDataStack: [IncompleteBinaryData] = []
-    private var variables: [VariableName: UIntMax] = [:]
+    private var variables = [VariableName: UIntMax]()
     private var data = dispatch_data_empty
+    private var bytesConsumed = 0
 
     /// Initialize the parser using a specification.
-    public init(_ spec: BinarySpec) {
+    public init(_ spec: BinarySpec, variables: [VariableName: UIntMax] = [:]) {
         initialSpec = spec
+        initialVariables = variables
         super.init()
         resetStates()
     }
@@ -666,17 +669,28 @@ private enum BinaryParserNextAction {
     /// bytes using the initial specification again.
     public func resetStates() {
         incompleteDataStack = [.Prepared(initialSpec)]
-        variables = [:]
+        variables = initialVariables
     }
 
     /// Parses all the bytes available. If the bytes are long enough to provide multiple BinaryData,
     /// all of them will be returned from this method.
     public func parseAll() -> [BinaryData] {
         var result: [BinaryData] = []
+
+        var currentConsumed = 0
+        bytesConsumed = 0
+
         while case let .Success(data) = next() where !data.isStop {
             result.append(data)
             resetStates()
+
+            if bytesConsumed == currentConsumed {
+                break
+            } else {
+                currentConsumed = bytesConsumed
+            }
         }
+        
         return result
     }
 
@@ -761,7 +775,7 @@ private enum BinaryParserNextAction {
             case let .Prepared(.Until(name, spec)):
                 let length = lengthVariable(name)
                 let data = try read(length)
-                let subparser = BinaryParser(spec)
+                let subparser = BinaryParser(spec, variables: variables)
                 subparser.supply(data)
                 let result = subparser.parseAll()
                 return pushState(.Seq(result))
@@ -789,6 +803,7 @@ private enum BinaryParserNextAction {
 
     private func read(n: Int) throws -> dispatch_data_t {
         let (prefix, suffix) = try data.splitAt(n)
+        bytesConsumed += n
         data = suffix
         return prefix
     }

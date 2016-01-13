@@ -423,6 +423,74 @@ class BinaryParserTest: XCTestCase {
             .Integer(0x88776655),
             ]))
     }
+
+    func testAccessVariableFromInsideUntil() {
+        let parser = BinaryParser(.Seq([
+            .Variable(.Byte, "value", offset: 0),
+            .Variable(.Byte, "length", offset: 0),
+            .Until("length", .Switch(
+                selector: "value",
+                cases: [1: .Integer(.UInt32LE), 2: .Integer(.UInt32BE)],
+                `default`: .Stop
+                ))]))
+
+        parser.supply([1, 9, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99])
+        parser.supply([2, 9, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99])
+        parser.supply([3, 9, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99])
+
+        parser.resetStates()
+        XCTAssertEqual(parser.next(), success: .Seq([
+            .Integer(1),
+            .Integer(9),
+            .Seq([
+                .Integer(0x44332211),
+                .Integer(0x88776655),
+                ]),
+            ]))
+
+        parser.resetStates()
+        XCTAssertEqual(parser.next(), success: .Seq([
+            .Integer(2),
+            .Integer(9),
+            .Seq([
+                .Integer(0x11223344),
+                .Integer(0x55667788),
+                ]),
+            ]))
+
+        parser.resetStates()
+        XCTAssertEqual(parser.next(), success: .Seq([
+            .Integer(3),
+            .Integer(9),
+            .Seq([]),
+            ]))
+    }
+
+    func testUntilOfEmpty() {
+        let parser = BinaryParser(.Until(nil, .Skip(0)))
+        parser.supply([1])
+
+        let result = parser.parseAll()
+        XCTAssertEqual(result, [.Seq([.Empty]), .Seq([.Empty])])
+    }
+
+
+    func testUntilOfSwitchWithEmpty() {
+        let parser = BinaryParser(.Seq([
+            .Variable(.Byte, "s", offset: 0),
+            .Variable(.Byte, "l", offset: 0),
+            .Until("l", .Switch(
+                selector: "s",
+                cases: [0: .Skip(0)],
+                `default`: .Integer(.UInt32LE)))]))
+
+        parser.supply([0, 1, 0xff, 1, 8, 5, 5, 5, 5, 6, 6, 6, 6])
+        let result = parser.parseAll()
+        XCTAssertEqual(result, [
+            .Seq([.Integer(0), .Integer(1), .Seq([.Empty])]),
+            .Seq([.Integer(1), .Integer(8), .Seq([.Integer(0x05050505), .Integer(0x06060606)])])
+            ])
+    }
 }
 
 class BinaryEncoderTest: XCTestCase {
