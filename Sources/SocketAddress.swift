@@ -268,6 +268,15 @@ public enum SocketAddress: Hashable {
         self.init(ptr)
     }
 
+    /// Extracts the host and port part of the URL.
+    public init?(URL: NSURL) {
+        guard let
+            hostString = URL.host,
+            host = IPAddress(string: hostString),
+            port = URL.port?.unsignedShortValue else { return nil }
+        self.init(host: host, port: port)
+    }
+
     /// Obtains a SocketAddress instance from a function that outputs `sockaddr` structures. For
     /// example:
     ///
