@@ -248,6 +248,19 @@ public enum SocketAddress: Hashable {
         }
     }
 
+    public init?(_ addr: NSData) {
+        guard addr.length >= sizeof(sockaddr) else { return nil }
+
+        switch Int32(UnsafePointer<sockaddr>(addr.bytes).memory.sa_family) {
+        case AF_INET where addr.length >= sizeof(sockaddr_in):
+            self.init(UnsafePointer<sockaddr_in>(addr.bytes).memory)
+        case AF_INET6 where addr.length >= sizeof(sockaddr_in6):
+            self.init(UnsafePointer<sockaddr_in6>(addr.bytes).memory)
+        default:
+            return nil
+        }
+    }
+
     /// Converts a generic `sockaddr_storage` structure to a SocketAddress.
     public init?(_ addr: sockaddr_storage) {
         var storage = addr
@@ -334,6 +347,11 @@ public enum SocketAddress: Hashable {
             memcpy(&storage, $0, Int($1))
         }
         return storage
+    }
+
+    /// Converts this address to a `sockaddr` structure and store into an NSData object.
+    public func toNSData() -> NSData {
+        return withSockaddr { NSData(bytes: $0, length: Int($1)) }
     }
 
     /// If the SocketAddress is an internet address, unpack into an IP address and port.
