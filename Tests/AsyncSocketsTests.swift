@@ -26,7 +26,7 @@ class ReadTest: XCTestCase {
         runReadServer(serverReadySemaphore, port: 40515)
 
         var reader: BinaryReader? = nil
-        var readResult = [Result<[BinaryData], NSError>]()
+        var readResult = [Result<[BinaryData]>]()
         let expectation = expectationWithDescription("Everything read")
 
         dispatch_async(clientHandlerQueue) {
@@ -45,7 +45,7 @@ class ReadTest: XCTestCase {
             let parser = BinaryParser(BinarySpec(parse: ">%B(I)"))
             reader = BinaryReader(parser: parser, fd: socket, readQueue: clientSocketQueue, handlerQueue: clientHandlerQueue) { arg in
                 readResult.append(arg)
-                if case .Failure = arg {
+                if case .Error = arg {
                     dispatch_semaphore_signal(readSemaphore)
                 }
             }
@@ -215,14 +215,14 @@ class WriteTest: XCTestCase {
             writer = BinaryWriter(encoder: encoder, fd: socket, writeQueue: clientSocketQueue)
             reader = BinaryReader(parser: parser, fd: socket, readQueue: clientSocketQueue, handlerQueue: clientSocketQueue) { res in
                 switch res {
-                case let .Success(results):
+                case let .Value(results):
                     precondition(readResult == BinaryData.Empty)
                     precondition(results.count == 1)
                     readResult = results[0]
                     dispatch_group_leave(dg)
                     close(socket)
-                case let .Failure(e):
-                    precondition([ECANCELED, ESHUTDOWN].contains(errno_t(e.code)))
+                case let .Error(e):
+                    precondition([ECANCELED, ESHUTDOWN].contains(errno_t((e as NSError).code)))
                 }
             }
 
@@ -286,7 +286,7 @@ class WriteTest: XCTestCase {
         let writeErr = writer.syncWrite(binData)
         XCTAssertNil(writeErr)
         let res = reader.syncRead(timeout: dispatch_walltime(nil, Int64(1 * NSEC_PER_SEC)))
-        let readResult = try! res.dematerialize()
+        let readResult = try! res.unwrap()
 
         XCTAssertEqual(readResult[0], BinaryData.Integer(UIntMax(lotsOfData.count)))
         var readData = readResult[1].bytes
@@ -363,7 +363,7 @@ class AcceptTest: XCTestCase {
         var acceptor: SocketAcceptor?
         defer { acceptor?.dispose() }
 
-        var acceptResults = [Result<(dispatch_fd_t, SocketAddress?), NSError>]()
+        var acceptResults = [Result<(dispatch_fd_t, SocketAddress?)>]()
 
         let expectation = expectationWithDescription("All clients connected")
 
@@ -378,7 +378,7 @@ class AcceptTest: XCTestCase {
                     return
                 }
 
-                guard case let .Success(fd, _) = res else {
+                guard case let .Value(fd, _) = res else {
                     preconditionFailure("\(res)")
                 }
                 close(fd)
@@ -406,7 +406,7 @@ class AcceptTest: XCTestCase {
         waitForExpectationsWithTimeout(2.0, handler: nil)
 
         for res in acceptResults {
-            guard case let .Success(_, .Internet(host, _)?) = res else {
+            guard case let .Value(_, .Internet(host, _)?) = res else {
                 XCTFail()
                 continue
             }

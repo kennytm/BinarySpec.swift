@@ -650,23 +650,23 @@ private enum BinaryParserNextAction {
     ///   available, returns `.Failure(IncompleteError)` indicating at least how much bytes are
     ///   needed to proceed to the next step.
     @warn_unused_result
-    public func next() -> Result<BinaryData, IncompleteError> {
+    public func next() -> Result<BinaryData> {
         do {
             while true {
                 switch try step() {
                 case .Done:
                     assert(incompleteDataStack.count == 1)
-                    return .Success(incompleteDataStack.last!.data)
+                    return .Value(incompleteDataStack.last!.data)
                 case let .Stop(spec, value):
                     let errorData = BinaryData.Stop(spec, value)
                     incompleteDataStack = [.Done(errorData)]
-                    return .Success(errorData)
+                    return .Value(errorData)
                 case .Continue:
                     continue
                 }
             }
         } catch let e as IncompleteError {
-            return .Failure(e)
+            return .Error(e)
         } catch {
             fatalError("Encountered unknown error")
         }
@@ -688,7 +688,7 @@ private enum BinaryParserNextAction {
         var currentConsumed = 0
         bytesConsumed = 0
 
-        while case let .Success(data) = next() where !data.isStop {
+        while case let .Value(data) = next() where !data.isStop {
             result.append(data)
             resetStates()
 
