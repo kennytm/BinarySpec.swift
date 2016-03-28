@@ -118,7 +118,7 @@ public class AbstractDispatchReader {
 /// This class is a thin wrapper of a `dispatch_source_t(DISPATCH_SOURCE_TYPE_READ)`.
 public final class BinaryReader: AbstractDispatchReader {
     private let parser: BinaryParser
-    private let handler: Result<[BinaryData]> -> ()
+    private let handler: Result<[BinaryData], NSError> -> ()
 
     /// Constructs a new reader which parses data from a file descriptor (like a file or a socket).
     ///
@@ -146,14 +146,14 @@ public final class BinaryReader: AbstractDispatchReader {
     ///     If the end-of-file is reached or the socket is closed orderly by the peer, the handler
     ///     will receive a POSIX-domain error `ESHUTDOWN`. If the reader is disposed manually, it
     ///     will receive `ECANCELED`.
-    public init(parser: BinaryParser, fd: dispatch_fd_t, readQueue: dispatch_queue_t, handlerQueue: dispatch_queue_t, handler: Result<[BinaryData]> -> ()) {
+    public init(parser: BinaryParser, fd: dispatch_fd_t, readQueue: dispatch_queue_t, handlerQueue: dispatch_queue_t, handler: Result<[BinaryData], NSError> -> ()) {
         self.parser = parser
         self.handler = handler
         super.init(fd: fd, readQueue: readQueue, handlerQueue: handlerQueue)
     }
 
     private override func handleError(error: errno_t) {
-        handler(.Error(NSError(domain: NSPOSIXErrorDomain, code: Int(error), userInfo: nil)))
+        handler(.Failure(NSError(domain: NSPOSIXErrorDomain, code: Int(error), userInfo: nil)))
     }
 
     private override func handleDataAvailable(fd: dispatch_fd_t, _ available: Int) {
@@ -172,7 +172,7 @@ public final class BinaryReader: AbstractDispatchReader {
         let result = parser.parseAll()
         guard !result.isEmpty else { return }
 
-        invokeHandlerDirectly(.Value(result), callback: handler)
+        invokeHandlerDirectly(.Success(result), callback: handler)
     }
 }
 
@@ -181,25 +181,25 @@ public final class BinaryReader: AbstractDispatchReader {
 public final class SyncBinaryReader {
     private class Buffer {
         var data = [BinaryData]()
-        var error: ErrorType? = nil
+        var error: NSError? = nil
         let semaphore = dispatch_semaphore_create(0)
 
-        func handler(newResult: Result<[BinaryData]>) {
+        func handler(newResult: Result<[BinaryData], NSError>) {
             assert(error == nil || newResult.error != nil, "Should not receive data after an error is sent")
             switch newResult {
-            case let .Value(b):
+            case let .Success(b):
                 data += b
-            case let .Error(e):
+            case let .Failure(e):
                 error = e
             }
             dispatch_semaphore_signal(semaphore)
         }
 
-        func get() -> Result<BinaryData>? {
+        func get() -> Result<BinaryData, NSError>? {
             if !data.isEmpty {
-                return .Value(data.removeFirst())
+                return .Success(data.removeFirst())
             } else if let err = error {
-                return .Error(err)
+                return .Failure(err)
             } else {
                 return nil
             }
@@ -233,9 +233,9 @@ public final class SyncBinaryReader {
     /// Reads one packet from the reader.
     ///
     /// This method **must not** run on the queue given to this reader, as it will lead to deadlock.
-    public func syncRead(timeout timeout: dispatch_time_t = DISPATCH_TIME_FOREVER) -> Result<BinaryData> {
+    public func syncRead(timeout timeout: dispatch_time_t = DISPATCH_TIME_FOREVER) -> Result<BinaryData, NSError> {
         // Pump out cached data if possible.
-        var fastResult: Result<BinaryData>?
+        var fastResult: Result<BinaryData, NSError>?
         dispatch_sync(reader.readQueue) {
             fastResult = self.buffer.get()
         }
@@ -245,15 +245,15 @@ public final class SyncBinaryReader {
 
         // Before actually reading the data, make sure the channel is still open.
         guard !reader.disposed else {
-            return .Error(NSError(domain: NSPOSIXErrorDomain, code: Int(ECANCELED), userInfo: nil))
+            return .Failure(NSError(domain: NSPOSIXErrorDomain, code: Int(ECANCELED), userInfo: nil))
         }
 
         let waitResult = dispatch_semaphore_wait(buffer.semaphore, timeout)
         guard waitResult == 0 else {
-            return .Error(NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT), userInfo: nil))
+            return .Failure(NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT), userInfo: nil))
         }
 
-        var result: Result<BinaryData>!
+        var result: Result<BinaryData, NSError>!
         dispatch_sync(reader.readQueue) {
             result = self.buffer.get()
         }
@@ -449,30 +449,30 @@ public final class BinaryWriter {
 
 /// A stream that asynchronously reports accepted clients of a bound socket.
 public final class SocketAcceptor: AbstractDispatchReader {
-    private let handler: Result<(dispatch_fd_t, SocketAddress?)> -> ()
+    private let handler: Result<(dispatch_fd_t, SocketAddress?), NSError> -> ()
     private var counter = 0
 
-    public init(fd: dispatch_fd_t, acceptQueue: dispatch_queue_t, handlerQueue: dispatch_queue_t, handler: Result<(dispatch_fd_t, SocketAddress?)> -> ()) {
+    public init(fd: dispatch_fd_t, acceptQueue: dispatch_queue_t, handlerQueue: dispatch_queue_t, handler: Result<(dispatch_fd_t, SocketAddress?), NSError> -> ()) {
         self.handler = handler
         super.init(fd: fd, readQueue: acceptQueue, handlerQueue: handlerQueue)
     }
 
     private override func handleError(error: errno_t) {
-        handler(.Error(NSError(domain: NSPOSIXErrorDomain, code: Int(error), userInfo: nil)))
+        handler(.Failure(NSError(domain: NSPOSIXErrorDomain, code: Int(error), userInfo: nil)))
     }
 
     private override func handleDataAvailable(fd: dispatch_fd_t, _: Int) {
         counter += 1
         let (addr, client) = SocketAddress.receive { accept(fd, $0, $1) }
-        let result: Result<(dispatch_fd_t, SocketAddress?)>
+        let result: Result<(dispatch_fd_t, SocketAddress?), NSError>
         if client >= 0 {
-            result = .Value((client, addr))
+            result = .Success((client, addr))
         } else {
             switch errno {
             case EAGAIN, EWOULDBLOCK, EINPROGRESS:
                 return
             case let errorCode:
-                result = .Error(NSError(domain: NSPOSIXErrorDomain, code: Int(errorCode), userInfo: nil))
+                result = .Failure(NSError(domain: NSPOSIXErrorDomain, code: Int(errorCode), userInfo: nil))
             }
         }
         invokeHandlerDirectly(result, callback: handler)

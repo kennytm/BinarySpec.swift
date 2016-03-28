@@ -117,7 +117,7 @@ class BinaryParserTest: XCTestCase {
             .Integer(.UInt64BE)
             ]))
         parser.supply([0x12, 0x12, 0x34, 0x12, 0x34, 0x56, 0x78, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0])
-        let result = try! parser.next().unwrap()
+        let result = try! parser.next().dematerialize()
 
         XCTAssertEqual(result, BinaryData.Seq([
             .Integer(0x12),
@@ -135,7 +135,7 @@ class BinaryParserTest: XCTestCase {
             .Integer(.UInt64LE)
             ]))
         parser.supply([0x12, 0x12, 0x34, 0x12, 0x34, 0x56, 0x78, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0])
-        let result = try! parser.next().unwrap()
+        let result = try! parser.next().dematerialize()
 
         XCTAssertEqual(result, BinaryData.Seq([
             .Integer(0x12),
@@ -234,7 +234,7 @@ class BinaryParserTest: XCTestCase {
             .Until("length", .Integer(.UInt32LE))
             ]))
         parser.supply([4, 1,2,3,4])
-        let result = try! parser.next().unwrap()
+        let result = try! parser.next().dematerialize()
         XCTAssertEqual(result, BinaryData.Seq([.Integer(4), .Seq([.Integer(0x04030201)])]))
     }
 
@@ -244,7 +244,7 @@ class BinaryParserTest: XCTestCase {
             .Until("length", .Integer(.UInt32LE))
             ]))
         parser.supply([0])
-        let result = try! parser.next().unwrap()
+        let result = try! parser.next().dematerialize()
         XCTAssertEqual(result, BinaryData.Seq([.Integer(0), .Seq([])]))
     }
 
@@ -490,40 +490,6 @@ class BinaryParserTest: XCTestCase {
             .Seq([.Integer(0), .Integer(1), .Seq([.Empty])]),
             .Seq([.Integer(1), .Integer(8), .Seq([.Integer(0x05050505), .Integer(0x06060606)])])
             ])
-    }
-
-    func test3() {
-        func dataFromHexString(string: String) -> [UInt8] {
-            var range = string.startIndex ..< string.endIndex
-            var data = [UInt8]()
-            data.reserveCapacity(range.count / 2)
-            while !range.isEmpty {
-                guard let nextRange = string.rangeOfString("[0-9a-fA-F]{2}", options: .RegularExpressionSearch, range: range, locale: nil) else {
-                    break
-                }
-                range = nextRange.endIndex ..< string.endIndex
-
-                let hexRep = string.substringWithRange(nextRange)
-                let byte = UInt8(hexRep, radix: 16)!
-                data.append(byte)
-            }
-            return data
-        }
-        
-
-        let spec = BinarySpec(parse: ">II %I %-16I 1$( 0${" +
-            "10000 = ," +
-            "10100 = III %I2$s *(%I3$s)," +
-            "* = *s," +
-            "} )")
-
-        let parser = BinaryParser(spec)
-
-        let bytes = dataFromHexString("0001fd07000daaca00002774000000e47d2e8499000daaca0000c903000000977b226465765f75756964223a223835344641383741413742303143463643443239393231393541323143423534222c226465765f6d6f64656c223a224d61676963426f7831735f506c7573222c226465765f646468706172616d6b657973223a5b226d6564696170726f6a656374696f6e225d2c226465765f6e616d65223a22e68891e79a844d61676963426f7831735f506c7573227d000000297b226665617475726573223a22313237222c2270726f6a656374696f6e706f7274223a31333532307d")
-        
-        parser.supply(bytes)
-        
-        print(parser.parseAll())
     }
 }
 
