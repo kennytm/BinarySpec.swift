@@ -773,7 +773,7 @@ private enum BinaryParserNextAction {
                 let selector = variables[name]!
                 let chosen = cases[selector] ?? def
                 if case .Stop = chosen {
-                    let spec = BinarySpec.Switch(selector: name, cases: cases, `default`: def)
+                    let spec = BinarySpec.Switch(selector: name, cases: cases, default: def)
                     return .Stop(spec, selector)
                 } else {
                     incompleteDataStack.append(.Prepared(chosen))

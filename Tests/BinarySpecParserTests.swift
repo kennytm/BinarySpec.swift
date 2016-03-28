@@ -96,7 +96,7 @@ class BinarySpecParserTests: XCTestCase {
                 1: .Integer(.UInt24LE),
                 2: .Integer(.Byte),
                 0xa: .Seq([.Integer(.UInt64LE), .Integer(.UInt64LE)])
-                ], `default`: .Integer(.UInt16LE))
+                ], default: .Integer(.UInt16LE))
             ]))
     }
 

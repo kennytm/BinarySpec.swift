@@ -252,9 +252,9 @@ internal class BinarySpecParser {
             if let cn = caseNum {
                 var modifiedCases = cases
                 modifiedCases[cn] = newSpec
-                return .Switch(selector: sel, cases: modifiedCases, `default`: def)
+                return .Switch(selector: sel, cases: modifiedCases, default: def)
             } else {
-                return .Switch(selector: sel, cases: cases, `default`: newSpec)
+                return .Switch(selector: sel, cases: cases, default: newSpec)
             }
         }
     }
@@ -315,7 +315,7 @@ internal class BinarySpecParser {
 
         case .SwitchStart:
             let variableName = consumeVariable()
-            appendToSeq(.Switch(selector: variableName, cases: [:], `default`: .Stop))
+            appendToSeq(.Switch(selector: variableName, cases: [:], default: .Stop))
             states.append(State())
 
         case .SwitchEnd:

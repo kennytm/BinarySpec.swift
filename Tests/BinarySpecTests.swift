@@ -256,7 +256,7 @@ class BinaryParserTest: XCTestCase {
                 1: .Integer(.UInt16BE),
                 2: .Integer(.UInt32BE),
                 3: .Integer(.UInt64BE),
-                ], `default`: .Integer(.UInt16LE))
+                ], default: .Integer(.UInt16LE))
             ])
 
         let parser = BinaryParser(spec)
@@ -280,7 +280,7 @@ class BinaryParserTest: XCTestCase {
     }
 
     func testSwitchStop() {
-        let switchSpec = BinarySpec.Switch(selector: "selector", cases: [0: .Integer(.Byte)], `default`: .Stop)
+        let switchSpec = BinarySpec.Switch(selector: "selector", cases: [0: .Integer(.Byte)], default: .Stop)
 
         let parser = BinaryParser(.Seq([.Variable(.Byte, "selector", offset: 0), switchSpec]))
         parser.supply([0x99, 0xcc])
@@ -310,7 +310,7 @@ class BinaryParserTest: XCTestCase {
             .Integer(.Byte),
             .Until("length", .Seq([
                 .Variable(.Byte, "selector", offset: 0),
-                .Switch(selector: "selector", cases: [7: .Integer(.Byte)], `default`: .Stop)
+                .Switch(selector: "selector", cases: [7: .Integer(.Byte)], default: .Stop)
                 ])),
             .Integer(.Byte),
         ]))
@@ -431,7 +431,7 @@ class BinaryParserTest: XCTestCase {
             .Until("length", .Switch(
                 selector: "value",
                 cases: [1: .Integer(.UInt32LE), 2: .Integer(.UInt32BE)],
-                `default`: .Stop
+                default: .Stop
                 ))]))
 
         parser.supply([1, 9, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99])
@@ -482,7 +482,7 @@ class BinaryParserTest: XCTestCase {
             .Until("l", .Switch(
                 selector: "s",
                 cases: [0: .Skip(0)],
-                `default`: .Integer(.UInt32LE)))]))
+                default: .Integer(.UInt32LE)))]))
 
         parser.supply([0, 1, 0xff, 1, 8, 5, 5, 5, 5, 6, 6, 6, 6])
         let result = parser.parseAll()

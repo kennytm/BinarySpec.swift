@@ -1,5 +1,5 @@
 target :BinarySpec, :BinarySpec_OSX do
-    github 'antitypical/Result', '1.0.1', :files=>'Result/*.swift'
+    github 'antitypical/Result', '2.0.0', :files=>'Result/*.swift'
     github 'robrix/Box', '2.0', :files=>'Box/*.swift'
 end
 
