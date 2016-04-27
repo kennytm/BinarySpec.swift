@@ -11,3 +11,4 @@ xcuserdata/
 *.swiftmodule
 Packages/
 Seeds/
+Carthage/Build

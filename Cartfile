@@ -1,0 +1,4 @@
+github "antitypical/Result" ~> 2.0.0
+github "robrix/Box" "master"
+github "robbiehanson/CocoaAsyncSocket" ~> 7.4.3
+
