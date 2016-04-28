@@ -2,7 +2,6 @@
 *.swo
 .DS_Store
 ._*
-*.xcworkspace
 xcuserdata/
 .build/
 *.a
