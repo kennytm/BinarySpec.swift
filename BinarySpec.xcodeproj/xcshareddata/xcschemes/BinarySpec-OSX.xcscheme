@@ -29,6 +29,15 @@
       shouldUseLaunchSchemeArgsEnv = "YES">
       <Testables>
       </Testables>
+      <MacroExpansion>
+         <BuildableReference
+            BuildableIdentifier = "primary"
+            BlueprintIdentifier = "9CB2D50C1C4407E10022BFDA"
+            BuildableName = "BinarySpec_OSX.framework"
+            BlueprintName = "BinarySpec_OSX"
+            ReferencedContainer = "container:BinarySpec.xcodeproj">
+         </BuildableReference>
+      </MacroExpansion>
       <AdditionalOptions>
       </AdditionalOptions>
    </TestAction>

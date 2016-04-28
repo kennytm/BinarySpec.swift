@@ -19,39 +19,39 @@ import XCTest
 
 class DispatchDataTest: XCTestCase {
     func testLinearize() {
-        var dd = dispatch_data_empty
+        var dd = NSMutableData()
         dd += [1,2,3,4,5]
         dd += [6,7]
         dd += [8]
         dd += [9,10]
         dd += [11,12,13,14,15,16]
 
-        let buffer = linearize(&dd)
+        let buffer = linearize(dd)
         XCTAssertEqual(Array(buffer), [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16])
     }
 
     func testSplitAt() {
-        var queue = dispatch_data_empty
-        var prefix: dispatch_data_t
+        var queue = NSMutableData()
+        var prefix: NSData
         queue += [1,2,3,4,5]
         queue += [6,7]
         queue += [8]
         queue += [9,10]
         queue += [11,12,13,14,15,16]
 
-        (prefix, queue) = try! queue.splitAt(4)
+        prefix = try! queue.splitAt(4)
         XCTAssertEqual(prefix, [1,2,3,4])
         XCTAssertEqual(queue, [5,6,7,8,9,10,11,12,13,14,15,16])
 
-        (prefix, queue) = try! queue.splitAt(1)
+        prefix = try! queue.splitAt(1)
         XCTAssertEqual(prefix, [5])
         XCTAssertEqual(queue, [6,7,8,9,10,11,12,13,14,15,16])
 
-        (prefix, queue) = try! queue.splitAt(4)
+        prefix = try! queue.splitAt(4)
         XCTAssertEqual(prefix, [6,7,8,9])
         XCTAssertEqual(queue, [10,11,12,13,14,15,16])
 
-        (prefix, queue) = try! queue.splitAt(7)
+        prefix = try! queue.splitAt(7)
         XCTAssertEqual(prefix, [10,11,12,13,14,15,16])
         XCTAssertTrue(queue.isEmpty)
 
@@ -66,17 +66,20 @@ class DispatchDataTest: XCTestCase {
     }
 
     func testResized() {
-        var queue = dispatch_data_empty
+        var queue = NSMutableData()
         queue += [1, 2]
         queue += [3, 4, 5, 6]
 
-        let res1 = queue.resized(5)
+        let res1 = NSMutableData(data: queue)
+        res1.length = 5
         XCTAssertEqual(res1, [1, 2, 3, 4, 5])
 
-        let res2 = queue.resized(6)
+        let res2 = NSMutableData(data: queue)
+        res2.length = 6
         XCTAssertEqual(res2, [1, 2, 3, 4, 5, 6])
 
-        let res3 = queue.resized(9)
+        let res3 = NSMutableData(data: queue)
+        res3.length = 9
         XCTAssertEqual(res3, [1, 2, 3, 4, 5, 6, 0, 0, 0])
 
         XCTAssertEqual(queue, [1, 2, 3, 4, 5, 6])
@@ -85,7 +88,7 @@ class DispatchDataTest: XCTestCase {
 
 class IntSpecTest: XCTestCase {
     func testDecode() {
-        var data = dispatch_data_empty
+        var data = NSMutableData()
         data += [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x12, 0x34]
 
         XCTAssertEqual(data.toUIntMax(.Byte), 0xaa)
@@ -201,7 +204,7 @@ class BinaryParserTest: XCTestCase {
             .Integer(5),
             .Bytes(createData([1, 2, 3, 4, 5])),
             .Integer(0),
-            .Bytes(dispatch_data_empty)
+            .Bytes(NSData())
             ]))
     }
 

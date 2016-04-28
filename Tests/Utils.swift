@@ -8,6 +8,7 @@
 
 import XCTest
 import BinarySpec
+import Result
 
 public func printStackTrace() {
     let trace = NSThread.callStackSymbols().suffixFrom(1)
@@ -21,9 +22,8 @@ public func printStackTrace() {
     print(demangled.joinWithSeparator("\n"))
 }
 
-public func XCTAssertEqual(left: dispatch_data_t, _ right: [UInt8], file: StaticString = #file, line: UInt = #line) {
-    var left = left
-    let leftBuffer = linearize(&left)
+public func XCTAssertEqual(left: NSData, _ right: [UInt8], file: StaticString = #file, line: UInt = #line) {
+    let leftBuffer = linearize(left)
     right.withUnsafeBufferPointer { rightBuffer in
         XCTAssertEqual(leftBuffer.count, rightBuffer.count, file: file, line: line)
         XCTAssertEqual(memcmp(leftBuffer.baseAddress, rightBuffer.baseAddress, leftBuffer.count), 0, file: file, line: line)
@@ -36,6 +36,15 @@ public func XCTAssertEqual<L, R: Equatable>(res: Result<L, R>, error: R, file: S
         return
     }
     XCTAssertEqual(e, error, file: file, line: line)
+}
+
+public func XCTAssertEqual<L>(res: Result<L, NSError>, domain: NSString, code: Int, file: StaticString = #file, line: UInt = #line) {
+    guard case let .Failure(e) = res else {
+        XCTFail("\(res) is not an NSError", file: file, line: line)
+        return
+    }
+    XCTAssertEqual(e.domain, domain, file: file, line: line)
+    XCTAssertEqual(e.code, code, file: file, line: line)
 }
 
 public func XCTAssertEqual<L: Equatable, R>(res: Result<L, R>, success: L, file: StaticString = #file, line: UInt = #line) {

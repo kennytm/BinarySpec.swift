@@ -167,6 +167,6 @@ class BinaryDataConvertibleTests: XCTestCase {
     }
 
     func testComposite() {
-        XCTAssertEqual(«[«1», «[«3», «""»]»]», BinaryData.Seq([.Integer(1), .Seq([.Integer(3), .Bytes(dispatch_data_empty)])]))
+        XCTAssertEqual(«[«1», «[«3», «""»]»]», BinaryData.Seq([.Integer(1), .Seq([.Integer(3), .Bytes(NSData())])]))
     }
 }
