@@ -54,6 +54,10 @@ public final class BinarySocket: GCDAsyncSocketDelegate {
         socket.disconnect()
     }
 
+    public var isDisconnected: Bool {
+        return socket.isDisconnected
+    }
+
     @objc public func socketDidDisconnect(sock: GCDAsyncSocket!, withError err: NSError!) {
         let e = err ?? NSError(domain: GCDAsyncSocketErrorDomain,
                                code: GCDAsyncSocketError.OtherError.rawValue,
