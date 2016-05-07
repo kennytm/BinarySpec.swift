@@ -57,7 +57,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "9CB2D50C1C4407E10022BFDA"
-               BuildableName = "BinarySpec_OSX.framework"
+               BuildableName = "BinarySpec.framework"
                BlueprintName = "BinarySpec_OSX"
                ReferencedContainer = "container:BinarySpec.xcodeproj">
             </BuildableReference>
@@ -75,7 +75,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "9CB2D50C1C4407E10022BFDA"
-            BuildableName = "BinarySpec_OSX.framework"
+            BuildableName = "BinarySpec.framework"
             BlueprintName = "BinarySpec_OSX"
             ReferencedContainer = "container:BinarySpec.xcodeproj">
          </BuildableReference>
@@ -97,7 +97,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "9CB2D50C1C4407E10022BFDA"
-            BuildableName = "BinarySpec_OSX.framework"
+            BuildableName = "BinarySpec.framework"
             BlueprintName = "BinarySpec_OSX"
             ReferencedContainer = "container:BinarySpec.xcodeproj">
          </BuildableReference>
@@ -115,7 +115,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "9CB2D50C1C4407E10022BFDA"
-            BuildableName = "BinarySpec_OSX.framework"
+            BuildableName = "BinarySpec.framework"
             BlueprintName = "BinarySpec_OSX"
             ReferencedContainer = "container:BinarySpec.xcodeproj">
          </BuildableReference>
