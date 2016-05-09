@@ -102,7 +102,8 @@ public final class BinarySocket: GCDAsyncSocketDelegate {
             self.nextWriteCallbackKey = key &+ 1
             self.writeCallbacks[key] = callback
         }
-        let encodedData = encoder.encode(data.toBinaryData())
+        let bd = data.toBinaryData()
+        let encodedData = encoder.encode(bd)
         socket.writeData(encodedData, withTimeout: timeout, tag: key)
     }
 

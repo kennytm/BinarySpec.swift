@@ -442,11 +442,11 @@ public indirect enum BinarySpec: Equatable, CustomStringConvertible {
                 return "%\(a)"
             }
         case let .Bytes(a):
-            return "\(a)$s"
+            return "\(a ?? "")$s"
         case let .Seq(a):
             return "[\(a.lazy.map { $0.description }.joinWithSeparator(" "))]"
         case let .Until(a, b):
-            return "\(a)$(\(b))"
+            return "\(a ?? "")$(\(b))"
         case let .Repeat(a, b):
             return "\(a)$*(\(b))"
         case let .Switch(sel, cases, def):
