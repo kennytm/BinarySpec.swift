@@ -97,13 +97,14 @@ public final class BinarySocket: GCDAsyncSocketDelegate {
         }
 
         var key: Int!
+        let bd = data.toBinaryData()
+        var encodedData: NSData!
         dispatch_sync(writeCallbackQueue) {
             key = self.nextWriteCallbackKey
             self.nextWriteCallbackKey = key &+ 1
             self.writeCallbacks[key] = callback
+            encodedData = self.encoder.encode(bd)
         }
-        let bd = data.toBinaryData()
-        let encodedData = encoder.encode(bd)
         socket.writeData(encodedData, withTimeout: timeout, tag: key)
     }
 
